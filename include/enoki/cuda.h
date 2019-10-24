@@ -23,6 +23,14 @@ NAMESPACE_BEGIN(enoki)
 //! @{ \name Imports from libenoki-cuda.so
 // -----------------------------------------------------------------------
 
+
+struct PtxModuleContext
+{
+private:
+    struct Detail;
+    Detail* d = nullptr;
+};
+
 /// Initialize the tracing JIT
 extern ENOKI_IMPORT void cuda_init();
 
@@ -31,6 +39,38 @@ extern ENOKI_IMPORT void cuda_shutdown();
 
 /// Compile and evaluate the trace up to the current instruction
 extern ENOKI_IMPORT void cuda_eval(bool log_assembly /* = false */);
+
+///
+extern ENOKI_IMPORT void cuda_create_ptx_module_context();
+extern ENOKI_IMPORT void cuda_destroy_ptx_module_context();
+
+extern ENOKI_IMPORT void cuda_start_recording_ptx_function(const char *function_name);
+extern ENOKI_IMPORT void cuda_stop_recording_ptx_function();
+
+/// Generate PTX code for the trace up to the current instruction
+extern ENOKI_IMPORT char* cuda_get_ptx_module();
+
+template<typename Arg>
+ENOKI_INLINE void cuda_set_inputs(const Arg& a) { mark_input(a); }
+
+template<typename Arg, typename... Args>
+ENOKI_INLINE void cuda_set_inputs(const Arg& a, const Args&... as) {
+    cuda_set_inputs(a);
+    cuda_set_inputs(as...);
+}
+
+template<typename Arg>
+ENOKI_INLINE void cuda_set_outputs(const Arg& a) { mark_output(a); }
+
+template<typename Arg, typename... Args>
+ENOKI_INLINE void cuda_set_outputs(const Arg& a, const Args&... as) {
+    cuda_set_outputs(a);
+    cuda_set_outputs(as...);
+}
+
+extern ENOKI_IMPORT void cuda_var_mark_output(uint32_t index);
+
+extern ENOKI_IMPORT void cuda_var_mark_input(uint32_t index);
 
 /// Invokes 'cuda_eval' if the given variable has not been evaluated yet
 extern ENOKI_IMPORT void cuda_eval_var(uint32_t index, bool log_assembly = false);
@@ -49,6 +89,9 @@ extern ENOKI_IMPORT void* cuda_var_ptr(uint32_t);
 
 /// Retroactively adjust the recorded size of a variable
 extern ENOKI_IMPORT uint32_t cuda_var_set_size(uint32_t index, size_t size, bool copy = false);
+
+/// Returns true if the variable is dirty
+extern ENOKI_IMPORT bool cuda_var_is_dirty(uint32_t);
 
 /// Mark a variable as dirty (e.g. due to scatter)
 extern ENOKI_IMPORT void cuda_var_mark_dirty(uint32_t);
@@ -882,6 +925,32 @@ ENOKI_INLINE void set_label(const T& a, const char *label) {
             set_label(a.coeff(i), (std::string(label) + "." + std::to_string(i)).c_str());
     } else {
         cuda_var_set_label(a.index_(), label);
+    }
+}
+
+template<typename T, enable_if_t<is_cuda_array_v<T>> = 0>
+ENOKI_INLINE void mark_output(const T& a) {
+    if constexpr (array_depth_v<T> >= 2) {
+        for (size_t i = 0; i < T::Size; ++i)
+            mark_output(a.coeff(i));
+    } else {
+        if constexpr (is_diff_array_v<T>)
+            cuda_var_mark_output(a.value_().index_());
+        else
+            cuda_var_mark_output(a.index_());
+    }
+}
+
+template<typename T, enable_if_t<is_cuda_array_v<T>> = 0>
+ENOKI_INLINE void mark_input(const T& a) {
+    if constexpr (array_depth_v<T> >= 2) {
+        for (size_t i = 0; i < T::Size; ++i)
+            mark_input(a.coeff(i));
+    } else {
+        if constexpr (is_diff_array_v<T>)
+            cuda_var_mark_input(a.value_().index_());
+        else
+            cuda_var_mark_input(a.index_());
     }
 }
 

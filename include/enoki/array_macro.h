@@ -101,6 +101,11 @@
 #define ENOKI_MAP_EXPR_F1_1(f, v, x, peek, ...) \
     f(v.x) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F1_0)(f, v, peek, __VA_ARGS__)
 
+#define ENOKI_MAP_EXPR_F0_0(f, v, peek, ...) \
+    f(v) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F0_1)(f, peek, __VA_ARGS__)
+#define ENOKI_MAP_EXPR_F0_1(f, v, peek, ...) \
+    f(v) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F0_0)(f, peek, __VA_ARGS__)
+
 #define ENOKI_MAP_EXPR_F2_0(f, v, t, x, peek, ...) \
     f(v.x, t) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F2_1)(f, v, t, peek, __VA_ARGS__)
 #define ENOKI_MAP_EXPR_F2_1(f, v, t, x, peek, ...) \
@@ -110,6 +115,11 @@
     f(m.x, v.x, t) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F3_1)(f, m, v, t, peek, __VA_ARGS__)
 #define ENOKI_MAP_EXPR_F3_1(f, m, v, t, x, peek, ...) \
     f(m.x, v.x, t) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F3_0)(f, m, v, t, peek, __VA_ARGS__)
+
+#define ENOKI_MAP_EXPR_SET_LABEL_0(v, t, x, peek, ...) \
+    enoki::set_label(v.x, (std::string(t) + std::string("." # x)).c_str()) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_SET_LABEL_1)(v, t, peek, __VA_ARGS__)
+#define ENOKI_MAP_EXPR_SET_LABEL_1(v, t, x, peek, ...) \
+    enoki::set_label(v.x, (std::string(t) + std::string("." # x)).c_str()) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_SET_LABEL_0)(v, t, peek, __VA_ARGS__)
 
 #define ENOKI_MAP_EXPR_T2_0(f, t, x, peek, ...) \
     f<decltype(Value::x)>(t) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_T2_1)(f, t, peek, __VA_ARGS__)
@@ -166,6 +176,10 @@
 #define ENOKI_MAP_EXPR_F1(f, v, ...) \
     ENOKI_EVAL(ENOKI_MAP_EXPR_F1_0(f, v, __VA_ARGS__, (), 0))
 
+// ENOKI_MAP_EXPR_F1(f, v1, v2, v3, ...) expands to f(v1), f(v2), ...
+#define ENOKI_MAP_EXPR_F0(f, ...) \
+    ENOKI_EVAL(ENOKI_MAP_EXPR_F0_0(f, __VA_ARGS__, (), 0))
+
 // ENOKI_MAP_EXPR_F2(f, v, t, a1, a2, ...) expands to f(v.a1, t), f(v.a2, t), ...
 #define ENOKI_MAP_EXPR_F2(f, v, t, ...) \
     ENOKI_EVAL(ENOKI_MAP_EXPR_F2_0(f, v, t, __VA_ARGS__, (), 0))
@@ -177,6 +191,10 @@
 // ENOKI_MAP_EXPR_F3(f, m, v, t, a1, a2, ...) expands to f(m.a1, v.a1, t), f(m.a2, v.a2, t), ...
 #define ENOKI_MAP_EXPR_F3(f, v, t, ...) \
     ENOKI_EVAL(ENOKI_MAP_EXPR_F3_0(f, v, t, __VA_ARGS__, (), 0))
+
+// ENOKI_MAP_EXPR_SET_LABEL(v, t, a1, a2, ...) expands to enoki::set_label(v.a1, t ## a1), f(v.a2, t ## a2), ...
+#define ENOKI_MAP_EXPR_SET_LABEL(v, t, ...) \
+    ENOKI_EVAL(ENOKI_MAP_EXPR_SET_LABEL_0(v, t, __VA_ARGS__, (), 0))
 
 // ENOKI_MAP_EXPR_GATHER(a1, a2, ...) expands to enoki::gather<decltype(Value::a1)>(src.a1, index, mask), ..
 #define ENOKI_MAP_EXPR_GATHER(...) \
@@ -327,6 +345,16 @@
         static ENOKI_INLINE auto empty(size_t size) {                          \
             return Value(ENOKI_EVAL_0(                                         \
                 ENOKI_MAP_EXPR_T2(enoki::empty, size, __VA_ARGS__)));          \
+        }                                                                      \
+        static ENOKI_INLINE void mark_output(const Value& value) {             \
+            ENOKI_MAP_EXPR_F1(enoki::mark_output, value, __VA_ARGS__);         \
+        }                                                                      \
+        static ENOKI_INLINE void mark_input(const Value& value) {              \
+            ENOKI_MAP_EXPR_F1(enoki::mark_input, value, __VA_ARGS__);          \
+        }                                                                      \
+        static ENOKI_INLINE void set_label(const Value &value,                 \
+                                           const char* label) {                \
+            ENOKI_MAP_EXPR_SET_LABEL(value, label, __VA_ARGS__);               \
         }                                                                      \
     };                                                                         \
     NAMESPACE_END(enoki)

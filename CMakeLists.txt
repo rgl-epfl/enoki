@@ -284,6 +284,7 @@ endif()
 add_definitions(-DENOKI_BUILD=1)
 
 if (ENOKI_CUDA)
+  add_definitions(-DTHRUST_IGNORE_CUB_VERSION_CHECK)
   include_directories(ext/cub)
   set(CMAKE_SHARED_LINKER_FLAGS_BACKUP "${CMAKE_SHARED_LINKER_FLAGS}")
   string(REPLACE "-stdlib=libc++" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")

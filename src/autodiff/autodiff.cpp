@@ -29,6 +29,9 @@
 /// Max. allowed cost in number of arithmetic operations that a simplification can do
 #define ENOKI_AUTODIFF_MAX_SIMPLIFICATION_COST 10
 
+/// Save kernel size by disabling safe operations (which change NaN semantics in backprop)
+// #define ENOKI_AUTODIFF_DISABLE_SAFE_OPS
+
 NAMESPACE_BEGIN(enoki)
 
 using Index = uint32_t;
@@ -253,6 +256,10 @@ template <typename Value> uint32_t Tape<Value>::log_level() const {
     return d->log_level;
 }
 
+template <typename Value> bool Tape<Value>::graph_simplification_enabled() const {
+    return d->graph_simplification;
+}
+
 template <typename Value> void Tape<Value>::set_graph_simplification(bool value) {
     d->graph_simplification = value;
 }
@@ -342,6 +349,7 @@ void Tape<Value>::set_label(Index idx, const char *label) {
     std::string name = "'" + std::string(label) + "'";
     Node &n = d->node(idx);
     n.label = name;
+    // TODO: fix this!
     enoki::set_label(n.grad, (label + std::string(".grad")).c_str());
 }
 
@@ -714,13 +722,14 @@ void Tape<Value>::forward(Index index, bool free_graph) {
 }
 
 template <typename Value>
-void Tape<Value>::set_gradient(Index index, const Value &value, bool backward) {
+void Tape<Value>::set_gradient(Index index, const Value &value, bool backward, bool add_to_graph) {
     if (index == 0)
         throw std::runtime_error(
             "set_gradient(): no gradients are associated with this variable (a "
             "prior call to requires_gradient() is required.) ");
 
-    d->dfs(index, backward, true);
+    if (add_to_graph)
+        d->dfs(index, backward, true);
     Node &node = d->node(index);
     node.grad = value;
     if constexpr (is_dynamic_v<Value>) {
@@ -1084,6 +1093,10 @@ template <typename Value> std::string Tape<Value>::whos() const {
 
 template <typename Value> Value safe_mul(const Value &value1, const Value &value2) {
     Value tentative = value1 * value2;
+
+#if defined(ENOKI_AUTODIFF_DISABLE_SAFE_OPS)
+    return tentative;
+#else
     if constexpr (!is_cuda_array_v<Value>) {
         Value zero = scalar_t<Value>(0);
         mask_t<Value> is_zero = eq(value1, zero) || eq(value2, zero);
@@ -1094,10 +1107,15 @@ template <typename Value> Value safe_mul(const Value &value1, const Value &value
              m2 = Mask::from_index_(cuda_trace_append(EnokiType::Bool, "setp.eq.or.f32 $r1, $r2, 0.0, $r3", value2.index_(), m1.index_()));
         return Value::from_index_(cuda_trace_append(Value::Type, "selp.$t1 $r1, 0.0, $r2, $r3", tentative.index_(), m2.index_()));
     }
+#endif
 }
 
 template <typename Value> Value safe_fmadd(const Value &value1, const Value &value2, const Value &value3) {
     Value tentative = fmadd(value1, value2, value3);
+
+#if defined(ENOKI_AUTODIFF_DISABLE_SAFE_OPS)
+    return tentative;
+#else
     if constexpr (!is_cuda_array_v<Value>) {
         Value zero = scalar_t<Value>(0);
         mask_t<Value> is_zero = eq(value1, zero) || eq(value2, zero);
@@ -1108,6 +1126,7 @@ template <typename Value> Value safe_fmadd(const Value &value1, const Value &val
              m2 = Mask::from_index_(cuda_trace_append(EnokiType::Bool, "setp.eq.or.f32 $r1, $r2, 0.0, $r3", value2.index_(), m1.index_()));
         return Value::from_index_(cuda_trace_append(Value::Type, "selp.$t1 $r1, $r2, $r3, $r4", value3.index_(), tentative.index_(), m2.index_()));
     }
+#endif
 }
 
 template struct ENOKI_EXPORT Tape<float>;
