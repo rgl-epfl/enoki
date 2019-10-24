@@ -16,6 +16,7 @@
 #include <enoki/autodiff.h>
 
 #include <unordered_map>
+#include <map>
 #include <set>
 #include <sstream>
 #include <iomanip>
@@ -60,6 +61,9 @@ template <typename Value> struct Tape<Value>::Node {
     /// Size of the variable
     uint32_t size = 0;
 
+    /// Relatively greedy Markowitz score correction
+    int32_t rgm_score_correction = 1;
+
     Node(size_t size, const char *label)
         : label(label ? label : ""), size((uint32_t) size) { }
 
@@ -71,8 +75,8 @@ template <typename Value> struct Tape<Value>::Node {
         return !edges.empty() && !edges_rev.empty();
     }
 
-    Index score() const {
-        return (uint32_t) (edges.size() * edges_rev.size());
+    int32_t score() const {
+        return (int32_t) (edges.size() * edges_rev.size() - rgm_score_correction);
     }
 
     Edge *edge(Index source) {
@@ -88,6 +92,17 @@ template <typename Value> struct Tape<Value>::Node {
             if (it->source == source) {
                 Edge temp(std::move(*it));
                 edges.erase(it);
+                return temp;
+            }
+        }
+        throw std::runtime_error("Node::remove_edge(): not found!");
+    }
+
+    uint32_t remove_edge_rev(Index target) {
+        for (auto it = edges_rev.begin(); it != edges_rev.end(); ++it) {
+            if (*it == target) {
+                uint32_t temp(std::move(*it));
+                edges_rev.erase(it);
                 return temp;
             }
         }
@@ -889,8 +904,64 @@ template <typename Value> void Tape<Value>::simplify_graph() {
     if (d->log_level >= 2)
         std::cerr << "autodiff: simplify_graph(): starting.." << std::endl;
 
-    std::set<std::pair<Index, Index>> todo;
-    std::vector<std::pair<Index, Index>> update;
+    // compute relatively greedy Markowitz score correction for each node
+
+    struct RGMData {
+        uint32_t n_checked_parents;
+        std::set<Index> leaf_parents;
+    };
+
+    // the boolean value indicates wheter we are traversing the tree in reverse for this node
+    std::map<std::pair<Index, bool>, RGMData> rgm_todo;
+
+    for (const auto& it: d->nodes) {
+        const Index& index = it.first;
+        const Node& node = it.second;
+
+        if (node.edges.empty())     rgm_todo.insert({{index, false}, {0, {index}}});
+        if (node.edges_rev.empty()) rgm_todo.insert({{index, true}, {0, {index}}});
+    }
+
+    // helper lambda to add a node to the todo map, or update it if it already exists
+    auto append_node_or_update = [&rgm_todo](Index index, bool rev, const RGMData& rgm_data) {
+        auto src = rgm_todo.find({index, rev});
+        if (src == rgm_todo.end()) {
+            rgm_todo.insert({{index, rev}, {1, rgm_data.leaf_parents}});
+        } else {
+            src->second.n_checked_parents++;
+            src->second.leaf_parents.insert(rgm_data.leaf_parents.begin(), rgm_data.leaf_parents.end());
+        }
+    };
+
+    while(!rgm_todo.empty()) {
+        for (auto it = rgm_todo.begin(); it != rgm_todo.end();) {
+            Node& node = d->node(it->first.first);
+
+            bool rev = it->first.second;
+            const RGMData& rgm_data = it->second;
+
+            // Have we visited all the parents of this node
+            uint32_t parents_count = rev ? node.edges_rev.size() : node.edges.size();
+            if (rgm_data.n_checked_parents != parents_count) {
+                ++it;
+                continue;
+            }
+
+            if (rev)
+                for (const auto& edge: node.edges)
+                    append_node_or_update(edge.source, rev, rgm_data);
+            else
+                for (uint32_t target_idx: node.edges_rev)
+                    append_node_or_update(target_idx, rev, rgm_data);
+
+            // this node is done, update its score and remove it from rgm_todo set
+            node.rgm_score_correction *= rgm_data.leaf_parents.size();
+            it = rgm_todo.erase(it);
+        }
+    }
+
+    std::set<std::pair<int32_t, Index>> todo;
+    std::vector<std::pair<int32_t, Index>> update;
     std::vector<Index> edges_rev;
     for (const auto &it : d->nodes)
         todo.emplace(it.second.score(), it.first);
@@ -898,7 +969,8 @@ template <typename Value> void Tape<Value>::simplify_graph() {
 
     while (!todo.empty()) {
         auto it = todo.begin();
-        uint32_t score = it->first, index = it->second;
+        int32_t score = it->first;
+        uint32_t index = it->second;
         todo.erase(it);
         Node &node = d->node(index);
         if (!node.collapse_allowed())
@@ -945,6 +1017,9 @@ template <typename Value> void Tape<Value>::simplify_graph() {
                 }
 
                 dec_ref_int(index, other);
+            }
+            for (const Edge& edge : node.edges) {
+                d->node(edge.source).remove_edge_rev(index);
             }
         }
 
