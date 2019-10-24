@@ -13,6 +13,7 @@
 
 #include <cuda.h>
 #include <vector>
+#include <string>
 #include <iostream>
 #include <iomanip>
 #include <array>
@@ -954,7 +955,7 @@ static void cuda_render_cmd(std::ostringstream &oss,
 }
 
 static std::pair<std::string, std::vector<void *>>
-cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_printf) {
+cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_printf, bool assemble_as_full_kernel = true) {
     Context &ctx = context();
     std::ostringstream oss;
     std::vector<void *> ptrs;
@@ -1015,31 +1016,75 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             << std::endl;
     }
 
-    oss << ".visible .entry enoki_@@@@@@@@(.param .u64 ptr," << std::endl
-        << "                               .param .u32 size) {" << std::endl
-        << "    .reg.b8 %b<" << n_vars << ">;" << std::endl
+    std::vector<uint32_t> in_params;
+    std::vector<uint32_t> out_params;
+    std::vector<uint32_t> global_params;
+    std::vector<std::string> global_params_labels;
+
+    if (assemble_as_full_kernel) {
+        oss << ".visible .entry enoki_@@@@@@@@(.param .u64 ptr," << std::endl
+            << "                               .param .u32 size) {" << std::endl;
+    } else {
+        for (uint32_t index: sweep) {
+            const Variable& var = ctx[index];
+            if (var.data || var.direct_pointer) {
+                if (var.label.size() >= 2 && var.label[0] == 'm' && var.label[1] == '_') {
+                    global_params.push_back(index);
+                    std::string label_cpy = var.label;
+                    std::replace(label_cpy.begin(), label_cpy.end(), '.', '_');
+                    global_params_labels.push_back(label_cpy);
+                } else {
+                    in_params.push_back(index);
+                }
+            }
+            else if (!var.label.empty()) out_params.push_back(index);
+        }
+        oss << "// Declare global variables" << std::endl;
+        for (size_t i = 0; i < global_params.size(); ++i) {
+            oss << ".visible .global .align " << cuda_register_size(ctx[global_params[i]].type) << " ."
+                << cuda_register_type(ctx[global_params[i]].type) << " " << global_params_labels[i] << ";" << std::endl;
+        }
+        oss << std::endl << std::endl;
+
+        oss << ".visible .func enoki_@@@@@@@@(";
+        for (auto it = in_params.begin(); it != in_params.end(); ++it) {
+            oss << std::endl << "   .param." << cuda_register_type(ctx[*it].type) << " in_" << reg_map[*it] << ",";
+            if (!ctx[*it].label.empty()) oss << "\t\t// " << ctx[*it].label;
+        }
+        for (auto it = out_params.begin(); it != out_params.end(); ++it) {
+            oss << std::endl << "    .param.u64 out_" << reg_map[*it];
+            if (it != out_params.end()-1) oss << ",";
+            if (!ctx[*it].label.empty()) oss << "\t\t// " << ctx[*it].label;
+        }
+        oss << std::endl << ") {" << std::endl;
+    }
+
+    oss << "    .reg.b8 %b<" << n_vars << ">;" << std::endl
         << "    .reg.b16 %w<" << n_vars << ">;" << std::endl
         << "    .reg.b32 %r<" << n_vars << ">;" << std::endl
         << "    .reg.b64 %rd<" << n_vars << ">;" << std::endl
         << "    .reg.f32 %f<" << n_vars << ">;" << std::endl
         << "    .reg.f64 %d<" << n_vars << ">;" << std::endl
         << "    .reg.pred %p<" << n_vars << ">;" << std::endl << std::endl
-        << std::endl
-        << "    // Grid-stride loop setup" << std::endl
-        << "    ld.param.u64 %rd0, [ptr];" << std::endl
-        << "    ld.param.u32 %r1, [size];" << std::endl
-        << "    mov.u32 %r4, %tid.x;" << std::endl
-        << "    mov.u32 %r5, %ctaid.x;" << std::endl
-        << "    mov.u32 %r6, %ntid.x;" << std::endl
-        << "    mad.lo.u32 %r2, %r5, %r6, %r4;" << std::endl
-        << "    setp.ge.u32 %p0, %r2, %r1;" << std::endl
-        << "    @%p0 bra L0;" << std::endl
-        << std::endl
-        << "    mov.u32 %r7, %nctaid.x;" << std::endl
-        << "    mul.lo.u32 %r3, %r6, %r7;" << std::endl
-        << std::endl
-        << "L1:" << std::endl
-        << "    // Loop body" << std::endl;
+        << std::endl;
+
+    if (assemble_as_full_kernel) {
+        oss << "    // Grid-stride loop setup" << std::endl
+            << "    ld.param.u64 %rd0, [ptr];" << std::endl
+            << "    ld.param.u32 %r1, [size];" << std::endl
+            << "    mov.u32 %r4, %tid.x;" << std::endl
+            << "    mov.u32 %r5, %ctaid.x;" << std::endl
+            << "    mov.u32 %r6, %ntid.x;" << std::endl
+            << "    mad.lo.u32 %r2, %r5, %r6, %r4;" << std::endl
+            << "    setp.ge.u32 %p0, %r2, %r1;" << std::endl
+            << "    @%p0 bra L0;" << std::endl
+            << std::endl
+            << "    mov.u32 %r7, %nctaid.x;" << std::endl
+            << "    mul.lo.u32 %r3, %r6, %r7;" << std::endl
+            << std::endl
+            << "L1:" << std::endl
+            << "    // Loop body" << std::endl;
+    }
 
     for (uint32_t index : sweep) {
         Variable &var = ctx[index];
@@ -1064,26 +1109,38 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                 oss << ": " << var.label;
             oss << std::endl;
 
-            if (!var.direct_pointer) {
-                oss << "    ldu.global.u64 %rd8, [%rd0 + " << idx * 8 << "];" << std::endl;
-                const char *load_instr = "ldu";
-                if (var.size != 1) {
-                    oss << "    mul.wide.u32 %rd9, %r2, " << cuda_register_size(var.type) << ";" << std::endl
-                        << "    add.u64 %rd8, %rd8, %rd9;" << std::endl;
-                    load_instr = "ld";
-                }
-                if (var.type != EnokiType::Bool) {
-                    oss << "    " << load_instr << ".global." << cuda_register_type(var.type) << " "
-                        << cuda_register_name(var.type) << reg_map[index] << ", [%rd8]"
-                        << ";" << std::endl;
+            if (assemble_as_full_kernel) {
+                if (!var.direct_pointer) {
+                    oss << "    ldu.global.u64 %rd8, [%rd0 + " << idx * 8 << "];" << std::endl;
+                    const char *load_instr = "ldu";
+                    if (var.size != 1) {
+                        oss << "    mul.wide.u32 %rd9, %r2, " << cuda_register_size(var.type) << ";" << std::endl
+                            << "    add.u64 %rd8, %rd8, %rd9;" << std::endl;
+                        load_instr = "ld";
+                    }
+                    if (var.type != EnokiType::Bool) {
+                        oss << "    " << load_instr << ".global." << cuda_register_type(var.type) << " "
+                            << cuda_register_name(var.type) << reg_map[index] << ", [%rd8]"
+                            << ";" << std::endl;
+                    } else {
+                        oss << "    " << load_instr << ".global.u8 %w1, [%rd8];" << std::endl
+                            << "    setp.ne.u16 " << cuda_register_name(var.type) << reg_map[index] << ", %w1, 0;";
+                    }
                 } else {
-                    oss << "    " << load_instr << ".global.u8 %w1, [%rd8];" << std::endl
-                        << "    setp.ne.u16 " << cuda_register_name(var.type) << reg_map[index] << ", %w1, 0;";
+                    oss << "    ldu.global.u64 " << cuda_register_name(var.type)
+                        << reg_map[index] << ", [%rd0 + " << idx * 8 << "];"
+                        << std::endl;
                 }
             } else {
-                oss << "    ldu.global.u64 " << cuda_register_name(var.type)
-                    << reg_map[index] << ", [%rd0 + " << idx * 8 << "];"
-                    << std::endl;
+                auto found_in_globals = std::find(global_params.begin(), global_params.end(), index);
+                if (found_in_globals != global_params.end()) {
+                    oss << "    ld.global." << cuda_register_type(var.type) << " "
+                        << cuda_register_name(var.type) << reg_map[index] << ", ["
+                        << global_params_labels[(size_t)(found_in_globals - global_params.begin())] << "];" << std::endl;
+                } else { // it's a function argument
+                    oss << "    ld.param." << cuda_register_type(var.type) << " "
+                        << cuda_register_name(var.type) << reg_map[index] << ", [in_" << reg_map[index] << "];" << std::endl;
+                }
             }
             n_in++;
         } else {
@@ -1105,6 +1162,10 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             if (var.size != size)
                 continue;
 
+            // @CHECK: is this a sufficient condition
+            if (!assemble_as_full_kernel && var.label.empty())
+                continue;
+
             size_t size_in_bytes =
                 cuda_var_size(index) * cuda_register_size(var.type);
 
@@ -1124,28 +1185,46 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                 << "    // Store register " << cuda_register_name(var.type) << reg_map[index];
             if (!var.label.empty())
                 oss << ": " << var.label;
-            oss << std::endl
-                << "    ldu.global.u64 %rd8, [%rd0 + " << idx * 8 << "];" << std::endl;
-            if (var.size != 1) {
-                oss << "    mul.wide.u32 %rd9, %r2, " << cuda_register_size(var.type) << ";" << std::endl
-                    << "    add.u64 %rd8, %rd8, %rd9;" << std::endl;
-            }
-            if (var.type != EnokiType::Bool) {
-                oss << "    st.global." << cuda_register_type(var.type) << " [%rd8], "
-                    << cuda_register_name(var.type) << reg_map[index] << ";"
-                    << std::endl;
+            oss << std::endl;
+
+            if (assemble_as_full_kernel) {
+                oss << "    ldu.global.u64 %rd8, [%rd0 + " << idx * 8 << "];" << std::endl;
+                if (var.size != 1) {
+                    oss << "    mul.wide.u32 %rd9, %r2, " << cuda_register_size(var.type) << ";" << std::endl
+                        << "    add.u64 %rd8, %rd8, %rd9;" << std::endl;
+                }
+                if (var.type != EnokiType::Bool) {
+                    oss << "    st.global." << cuda_register_type(var.type) << " [%rd8], "
+                        << cuda_register_name(var.type) << reg_map[index] << ";"
+                        << std::endl;
+                } else {
+                    oss << "    selp.u16 %w1, 1, 0, " << cuda_register_name(var.type)
+                        << reg_map[index] << ";" << std::endl;
+                    oss << "    st.global.u8" << " [%rd8], %w1;" << std::endl;
+                }
             } else {
-                oss << "    selp.u16 %w1, 1, 0, " << cuda_register_name(var.type)
-                    << reg_map[index] << ";" << std::endl;
-                oss << "    st.global.u8" << " [%rd8], %w1;" << std::endl;
+                if (var.type != EnokiType::Bool) {
+                    oss << "    ld.param.u64 %rd8, [out_" << reg_map[index] << "];" << std::endl;
+                    oss << "    st.global." << cuda_register_type(var.type) << " [%rd8], "
+                        << cuda_register_name(var.type) << reg_map[index] << ";"
+                        << std::endl;
+                }
+                // @TODO: what should we do here
+                // else {
+                //     oss << "    selp.u16 %w1, 1, 0, " << cuda_register_name(var.type)
+                //         << reg_map[index] << ";" << std::endl;
+                //     oss << "    st.global.u8" << " [%rd8], %w1;" << std::endl;
+                // }
             }
         }
     }
 
-    oss << std::endl
-        << "    add.u32     %r2, %r2, %r3;" << std::endl
-        << "    setp.ge.u32 %p0, %r2, %r1;" << std::endl
-        << "    @!%p0 bra L1;" << std::endl;
+    if (assemble_as_full_kernel) {
+        oss << std::endl
+            << "    add.u32     %r2, %r2, %r3;" << std::endl
+            << "    setp.ge.u32 %p0, %r2, %r1;" << std::endl
+            << "    @!%p0 bra L1;" << std::endl;
+    }
 
     oss << std::endl
         << "L0:" << std::endl
@@ -1376,6 +1455,7 @@ ENOKI_EXPORT void cuda_eval(bool log_assembly) {
         auto result = cuda_jit_assemble(size, schedule, ctx.include_printf);
         if (std::get<0>(result).empty())
             continue;
+
         TimePoint mid = std::chrono::high_resolution_clock::now();
 
         cuda_jit_run(ctx,
@@ -1418,6 +1498,36 @@ ENOKI_EXPORT void cuda_eval(bool log_assembly) {
             }
         }
     }
+}
+
+ENOKI_EXPORT std::vector<std::string> cuda_get_ptx() {
+    Context &ctx = context();
+
+    std::map<size_t, std::pair<std::unordered_set<uint32_t>,
+                               std::vector<uint32_t>>> sweeps;
+    for (uint32_t idx : ctx.live) {
+        auto &sweep = sweeps[ctx[idx].size];
+        sweep_recursive(ctx, std::get<0>(sweep), std::get<1>(sweep), idx);
+    }
+    for (uint32_t idx : ctx.dirty)
+        ctx[idx].dirty = false;
+
+    ctx.live.clear();
+    ctx.dirty.clear();
+
+    std::vector<std::string> ptx_src;
+    for (auto it = sweeps.rbegin(); it != sweeps.rend(); ++it) {
+        size_t size = std::get<0>(*it);
+        const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*it));
+
+        auto result = cuda_jit_assemble(size, schedule, ctx.include_printf, false);
+
+        if (std::get<0>(result).empty())
+            continue;
+
+        ptx_src.push_back(std::get<0>(result));
+    }
+    return ptx_src;
 }
 
 ENOKI_EXPORT void cuda_eval_var(uint32_t index, bool log_assembly) {
