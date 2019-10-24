@@ -43,6 +43,8 @@ PYBIND11_MODULE(enoki, m) {
     m.def("cuda_eval", &cuda_eval, "log_assembly"_a = false,
           py::call_guard<py::gil_scoped_release>());
 
+    m.def("cuda_get_ptx", &cuda_get_ptx);
+
     m.def("cuda_sync", &cuda_sync,
           py::call_guard<py::gil_scoped_release>());
 
