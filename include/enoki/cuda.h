@@ -19,6 +19,15 @@
 
 NAMESPACE_BEGIN(enoki)
 
+enum class VariableModifier
+{
+    TEMPORARY = 0,
+    INPUT,
+    GLOBAL,
+    OUTPUT,
+    VARIABLE_MODIFIERS_COUNT
+};
+
 // -----------------------------------------------------------------------
 //! @{ \name Imports from libenoki-cuda.so
 // -----------------------------------------------------------------------
@@ -34,6 +43,29 @@ extern ENOKI_IMPORT void cuda_eval(bool log_assembly /* = false */);
 
 /// Generate PTX code for the trace up to the current instruction
 extern ENOKI_IMPORT std::vector<std::string> cuda_get_ptx();
+
+extern ENOKI_IMPORT void cuda_start_ptx_signature();
+
+template<typename Arg>
+ENOKI_INLINE void cuda_set_inputs(const Arg& a) { set_modifier(a, VariableModifier::INPUT); }
+
+template<typename Arg, typename... Args>
+ENOKI_INLINE void cuda_set_inputs(const Arg& a, const Args&... as) {
+    cuda_set_inputs(a);
+    cuda_set_inputs(as...);
+}
+
+template<typename Arg>
+ENOKI_INLINE void cuda_set_outputs(const Arg& a) { set_modifier(a, VariableModifier::OUTPUT); }
+
+template<typename Arg, typename... Args>
+ENOKI_INLINE void cuda_set_outputs(const Arg& a, const Args&... as) {
+    cuda_set_outputs(a);
+    cuda_set_outputs(as...);
+}
+
+/// 
+extern ENOKI_IMPORT void cuda_var_set_modifier(uint32_t, VariableModifier);
 
 /// Invokes 'cuda_eval' if the given variable has not been evaluated yet
 extern ENOKI_IMPORT void cuda_eval_var(uint32_t index, bool log_assembly = false);
@@ -885,6 +917,16 @@ ENOKI_INLINE void set_label(const T& a, const char *label) {
             set_label(a.coeff(i), (std::string(label) + "." + std::to_string(i)).c_str());
     } else {
         cuda_var_set_label(a.index_(), label);
+    }
+}
+
+template<typename T, enable_if_t<is_cuda_array_v<T>> = 0>
+ENOKI_INLINE void set_modifier(const T& a, VariableModifier mod) {
+    if constexpr (array_depth_v<T> >= 2) {
+        for (size_t i = 0; i < T::Size; ++i)
+            set_modifier(a.coeff(i), mod);
+    } else {
+        cuda_var_set_modifier(a.index_(), mod);
     }
 }
 

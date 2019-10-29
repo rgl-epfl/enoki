@@ -214,6 +214,24 @@ ENOKI_INLINE Value compress(const Value &value, const Mask& mask) {
     return struct_support_t<Value>::compress(value, mask);
 }
 
+template<typename Value, enable_if_t<!is_cuda_array_v<Value> && !is_diff_array_v<Value>> = 0>
+ENOKI_INLINE void set_label(const Value &value, const char *label) {
+    struct_support_t<Value>::set_label(value, label);
+}
+
+// Forward declaration
+enum class VariableModifier;
+
+template<typename Value, enable_if_t<!is_cuda_array_v<Value>> = 0>
+ENOKI_INLINE void set_modifier(const Value &value, VariableModifier mod) {
+    struct_support_t<Value>::set_modifier(value, mod);
+}
+
+// template<typename Value>
+// ENOKI_INLINE void set_label(const Value &value, VariableModifier mod) {
+//     return struct_support_t<Value>::set_label(value, mod);
+// }
+
 template <typename T> using enable_if_dynamic_t = enable_if_t<is_dynamic_v<T>>;
 template <typename T> using enable_if_static_t = enable_if_t<!is_dynamic_v<T>>;
 

@@ -45,6 +45,15 @@
 
 NAMESPACE_BEGIN(enoki)
 
+enum VariableModifier
+{
+    TEMPORARY = 0,
+    INPUT,
+    GLOBAL,
+    OUTPUT,
+    VARIABLE_MODIFIERS_COUNT
+};
+
 using TimePoint = std::chrono::time_point<std::chrono::high_resolution_clock>;
 
 // Forward declarations
@@ -68,6 +77,9 @@ struct Variable {
 
     /// Associated label (mainly for debugging)
     std::string label;
+
+    /// Associated modifier, for ptx extraction (default is temporary)
+    VariableModifier modifier = TEMPORARY;
 
     /// Number of entries
     size_t size = 0;
@@ -159,6 +171,10 @@ struct Context {
 
     /// Stores the mapping from variable indices to variables
     std::unordered_map<uint32_t, Variable> variables;
+
+    /// Stores variables in order of apparition in the desiered function signature
+    std::vector<uint32_t> inputs;
+    std::vector<uint32_t> outputs;
 
     /// Stores the mapping from pointer addresses to variable indices
     std::unordered_map<const void *, uint32_t> ptr_map;
@@ -1016,9 +1032,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             << std::endl;
     }
 
-    std::vector<uint32_t> in_params;
-    std::vector<uint32_t> out_params;
-    std::vector<uint32_t> global_params;
+    std::vector<uint32_t> var_by_mod[VARIABLE_MODIFIERS_COUNT];
     std::vector<std::string> global_params_labels;
 
     if (assemble_as_full_kernel) {
@@ -1027,34 +1041,48 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
     } else {
         for (uint32_t index: sweep) {
             const Variable& var = ctx[index];
-            if (var.data || var.direct_pointer) {
-                if (var.label.size() >= 2 && var.label[0] == 'm' && var.label[1] == '_') {
-                    global_params.push_back(index);
-                    std::string label_cpy = var.label;
+            VariableModifier mod = var.modifier;
+
+            // If a variable has a data associated with it, but it wasn't marked
+            // as a INPUT, it is considered a GLOBAL
+            if (var.data && var.modifier != INPUT)
+                mod = GLOBAL;
+
+            var_by_mod[mod].push_back(index);
+            // We use the variable label as it's name when it's a global
+            // to allow for easier PTX usage.
+            if (mod == GLOBAL) {
+                std::string label_cpy = var.label;
+                if (label_cpy.empty())
+                    label_cpy = "global_" + std::to_string(index);
+                else
                     std::replace(label_cpy.begin(), label_cpy.end(), '.', '_');
-                    global_params_labels.push_back(label_cpy);
-                } else {
-                    in_params.push_back(index);
-                }
+                global_params_labels.push_back(label_cpy);
             }
-            else if (!var.label.empty()) out_params.push_back(index);
         }
-        oss << "// Declare global variables" << std::endl;
-        for (size_t i = 0; i < global_params.size(); ++i) {
-            oss << ".visible .global .align " << cuda_register_size(ctx[global_params[i]].type) << " ."
-                << cuda_register_type(ctx[global_params[i]].type) << " " << global_params_labels[i] << ";" << std::endl;
+        if (!var_by_mod[GLOBAL].empty()) {
+            oss << "// Declare global variables" << std::endl;
+
+            for (size_t i = 0; i < var_by_mod[GLOBAL].size(); ++i) {
+                oss << ".visible .global .align " << cuda_register_size(ctx[var_by_mod[GLOBAL][i]].type)
+                    << " ." << cuda_register_type(ctx[var_by_mod[GLOBAL][i]].type) << " "
+                    << global_params_labels[i] << ";" << std::endl;
+            }
+
+            oss << std::endl << std::endl;
         }
-        oss << std::endl << std::endl;
 
         oss << ".visible .func enoki_@@@@@@@@(";
-        for (auto it = in_params.begin(); it != in_params.end(); ++it) {
-            oss << std::endl << "   .param." << cuda_register_type(ctx[*it].type) << " in_" << reg_map[*it] << ",";
-            if (!ctx[*it].label.empty()) oss << "\t\t// " << ctx[*it].label;
+        for (size_t i = 0; i < var_by_mod[INPUT].size(); ++i) {
+            uint32_t index = var_by_mod[INPUT][i];
+            oss << std::endl << "    .param." << cuda_register_type(ctx[index].type) << " in_" << reg_map[index] << ",";
+            if (!ctx[index].label.empty()) oss << "\t\t// " << ctx[index].label;
         }
-        for (auto it = out_params.begin(); it != out_params.end(); ++it) {
-            oss << std::endl << "    .param.u64 out_" << reg_map[*it];
-            if (it != out_params.end()-1) oss << ",";
-            if (!ctx[*it].label.empty()) oss << "\t\t// " << ctx[*it].label;
+        for (size_t i = 0; i < var_by_mod[OUTPUT].size(); ++i) {
+            uint32_t index = var_by_mod[OUTPUT][i];
+            oss << std::endl << "    .param.u64 out_" << reg_map[index];
+            if (i != var_by_mod[OUTPUT].size()-1) oss << ",";
+            if (!ctx[index].label.empty()) oss << "\t\t// " << ctx[index].label;
         }
         oss << std::endl << ") {" << std::endl;
     }
@@ -1132,11 +1160,11 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                         << std::endl;
                 }
             } else {
-                auto found_in_globals = std::find(global_params.begin(), global_params.end(), index);
-                if (found_in_globals != global_params.end()) {
-                    oss << "    ld.global." << cuda_register_type(var.type) << " "
-                        << cuda_register_name(var.type) << reg_map[index] << ", ["
-                        << global_params_labels[(size_t)(found_in_globals - global_params.begin())] << "];" << std::endl;
+                auto found_in_globals = std::find(var_by_mod[GLOBAL].begin(), var_by_mod[GLOBAL].end(), index);
+                if (found_in_globals != var_by_mod[GLOBAL].end()) { // it's a global
+                    auto glob_index = (size_t)(found_in_globals - var_by_mod[GLOBAL].begin());
+                    oss << "    ld.global." << cuda_register_type(var.type) << " " << cuda_register_name(var.type)
+                        << reg_map[index] << ", [" << global_params_labels[glob_index] << "];" << std::endl;
                 } else { // it's a function argument
                     oss << "    ld.param." << cuda_register_type(var.type) << " "
                         << cuda_register_name(var.type) << reg_map[index] << ", [in_" << reg_map[index] << "];" << std::endl;
@@ -1500,6 +1528,12 @@ ENOKI_EXPORT void cuda_eval(bool log_assembly) {
     }
 }
 
+ENOKI_EXPORT void cuda_start_ptx_signature() {
+    Context& ctx = context();
+    ctx.inputs.clear();
+    ctx.outputs.clear();
+}
+
 ENOKI_EXPORT std::vector<std::string> cuda_get_ptx() {
     Context &ctx = context();
 
@@ -1528,6 +1562,20 @@ ENOKI_EXPORT std::vector<std::string> cuda_get_ptx() {
         ptx_src.push_back(std::get<0>(result));
     }
     return ptx_src;
+}
+
+ENOKI_EXPORT void cuda_var_set_modifier(uint32_t index, VariableModifier mod) {
+    Context &ctx = context();
+    if (ENOKI_UNLIKELY(mod == INPUT && !ctx[index].data && !ctx[index].direct_pointer))
+        throw std::runtime_error("cuda_var_set_modifier(): variable cannot be set "
+                                 "as input without being previously initialized!");
+    if (ENOKI_UNLIKELY(mod == OUTPUT && (ctx[index].data || ctx[index].direct_pointer)))
+        throw std::runtime_error("cuda_var_set_modifier(): variable cannot be set "
+                                 "as output with a initial value!");
+    ctx[index].modifier = mod;
+
+    if (mod == INPUT)   ctx.inputs.push_back(index);
+    if (mod == OUTPUT)  ctx.outputs.push_back(index);
 }
 
 ENOKI_EXPORT void cuda_eval_var(uint32_t index, bool log_assembly) {
