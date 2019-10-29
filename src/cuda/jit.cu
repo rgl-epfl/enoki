@@ -1178,8 +1178,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             if (var.size != size)
                 continue;
 
-            // @CHECK: is this a sufficient condition
-            if (!assemble_as_full_kernel && var.label.empty())
+            if (!assemble_as_full_kernel && std::find(ctx.outputs.begin(), ctx.outputs.end(), index) == ctx.outputs.end())
                 continue;
 
             size_t size_in_bytes =
