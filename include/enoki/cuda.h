@@ -33,7 +33,7 @@ extern ENOKI_IMPORT void cuda_shutdown();
 extern ENOKI_IMPORT void cuda_eval(bool log_assembly /* = false */);
 
 /// Generate PTX code for the trace up to the current instruction
-extern ENOKI_IMPORT std::vector<std::string> cuda_get_ptx();
+extern ENOKI_IMPORT std::string cuda_get_ptx();
 
 extern ENOKI_IMPORT void cuda_start_ptx_signature();
 
@@ -921,7 +921,6 @@ ENOKI_INLINE void mark_output(const T& a) {
         cuda_var_mark_output(a.index_());
     }
 }
-
 
 template<typename T, enable_if_t<is_cuda_array_v<T>> = 0>
 ENOKI_INLINE void mark_input(const T& a) {

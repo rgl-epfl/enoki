@@ -1523,7 +1523,7 @@ ENOKI_EXPORT void cuda_start_ptx_signature() {
     ctx.outputs.clear();
 }
 
-ENOKI_EXPORT std::vector<std::string> cuda_get_ptx() {
+ENOKI_EXPORT std::string cuda_get_ptx() {
     Context &ctx = context();
 
     std::map<size_t, std::pair<std::unordered_set<uint32_t>,
@@ -1538,7 +1538,7 @@ ENOKI_EXPORT std::vector<std::string> cuda_get_ptx() {
     ctx.live.clear();
     ctx.dirty.clear();
 
-    std::vector<std::string> ptx_src;
+    std::ostringstream ptx_src;
     for (auto it = sweeps.rbegin(); it != sweeps.rend(); ++it) {
         size_t size = std::get<0>(*it);
         const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*it));
@@ -1548,9 +1548,9 @@ ENOKI_EXPORT std::vector<std::string> cuda_get_ptx() {
         if (std::get<0>(result).empty())
             continue;
 
-        ptx_src.push_back(std::get<0>(result));
+        ptx_src << std::get<0>(result) << std::endl;
     }
-    return ptx_src;
+    return ptx_src.str();
 }
 
 ENOKI_EXPORT void cuda_var_mark_output(uint32_t index) {
