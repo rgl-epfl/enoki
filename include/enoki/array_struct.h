@@ -219,12 +219,14 @@ ENOKI_INLINE void set_label(const Value &value, const char *label) {
     struct_support_t<Value>::set_label(value, label);
 }
 
-// Forward declaration
-enum class VariableModifier;
+template<typename Value, enable_if_t<!is_cuda_array_v<Value>> = 0>
+ENOKI_INLINE void mark_output(const Value &value) {
+    struct_support_t<Value>::mark_output(value);
+}
 
 template<typename Value, enable_if_t<!is_cuda_array_v<Value>> = 0>
-ENOKI_INLINE void set_modifier(const Value &value, VariableModifier mod) {
-    struct_support_t<Value>::set_modifier(value, mod);
+ENOKI_INLINE void mark_input(const Value &value) {
+    struct_support_t<Value>::mark_input(value);
 }
 
 // template<typename Value>

@@ -337,9 +337,11 @@
             return Value(ENOKI_EVAL_0(                                         \
                 ENOKI_MAP_EXPR_T2(enoki::empty, size, __VA_ARGS__)));          \
         }                                                                      \
-        static ENOKI_INLINE void set_modifier(const Value& value,              \
-                                              VariableModifier mod) {          \
-            ENOKI_MAP_EXPR_F2(enoki::set_modifier, value, mod, __VA_ARGS__);   \
+        static ENOKI_INLINE void mark_output(const Value& value) {             \
+            ENOKI_MAP_EXPR_F1(enoki::mark_output, value, __VA_ARGS__);         \
+        }                                                                      \
+        static ENOKI_INLINE void mark_input(const Value& value) {              \
+            ENOKI_MAP_EXPR_F1(enoki::mark_input, value, __VA_ARGS__);          \
         }                                                                      \
         static ENOKI_INLINE void set_label(const Value &value,                 \
                                            const char* label) {                \
