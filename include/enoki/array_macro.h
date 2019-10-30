@@ -101,6 +101,11 @@
 #define ENOKI_MAP_EXPR_F1_1(f, v, x, peek, ...) \
     f(v.x) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F1_0)(f, v, peek, __VA_ARGS__)
 
+#define ENOKI_MAP_EXPR_F0_0(f, v, peek, ...) \
+    f(v) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F0_1)(f, peek, __VA_ARGS__)
+#define ENOKI_MAP_EXPR_F0_1(f, v, peek, ...) \
+    f(v) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F0_0)(f, peek, __VA_ARGS__)
+
 #define ENOKI_MAP_EXPR_F2_0(f, v, t, x, peek, ...) \
     f(v.x, t) ENOKI_MAP_EXPR_NEXT(peek, ENOKI_MAP_EXPR_F2_1)(f, v, t, peek, __VA_ARGS__)
 #define ENOKI_MAP_EXPR_F2_1(f, v, t, x, peek, ...) \
@@ -170,6 +175,10 @@
 // ENOKI_MAP_EXPR_F1(f, v, a1, a2, ...) expands to f(v.a1), f(v.a2), ...
 #define ENOKI_MAP_EXPR_F1(f, v, ...) \
     ENOKI_EVAL(ENOKI_MAP_EXPR_F1_0(f, v, __VA_ARGS__, (), 0))
+
+// ENOKI_MAP_EXPR_F1(f, v1, v2, v3, ...) expands to f(v1), f(v2), ...
+#define ENOKI_MAP_EXPR_F0(f, ...) \
+    ENOKI_EVAL(ENOKI_MAP_EXPR_F0_0(f, __VA_ARGS__, (), 0))
 
 // ENOKI_MAP_EXPR_F2(f, v, t, a1, a2, ...) expands to f(v.a1, t), f(v.a2, t), ...
 #define ENOKI_MAP_EXPR_F2(f, v, t, ...) \

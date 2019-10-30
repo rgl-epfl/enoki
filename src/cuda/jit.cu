@@ -43,6 +43,8 @@
 /// Reserved registers for grid-stride loop indexing
 #define ENOKI_CUDA_REG_RESERVED 10
 
+#define ENOKI_DEFAULT_FUNCTION_NAME "enoki_@@@@@@@@"
+
 NAMESPACE_BEGIN(enoki)
 
 using TimePoint = std::chrono::time_point<std::chrono::high_resolution_clock>;
@@ -1024,7 +1026,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
     std::vector<std::string> global_params_labels;
 
     if (assemble_as_full_kernel) {
-        oss << ".visible .entry enoki_@@@@@@@@(.param .u64 ptr," << std::endl
+        oss << ".visible .entry " ENOKI_DEFAULT_FUNCTION_NAME "(.param .u64 ptr," << std::endl
             << "                               .param .u32 size) {" << std::endl;
     } else {
         for (uint32_t index: sweep) {
@@ -1060,7 +1062,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             oss << std::endl << std::endl;
         }
 
-        oss << ".visible .func enoki_@@@@@@@@(";
+        oss << ".visible .func " ENOKI_DEFAULT_FUNCTION_NAME "(";
         for (size_t i = 0; i < ctx.inputs.size(); ++i) {
             uint32_t index = ctx.inputs[i];
             oss << std::endl << "    .param." << cuda_register_type(ctx[index].type) << " in_" << reg_map[index] << ",";
@@ -1515,14 +1517,7 @@ ENOKI_EXPORT void cuda_eval(bool log_assembly) {
     }
 }
 
-ENOKI_EXPORT void cuda_start_ptx_signature() {
-    Context& ctx = context();
-    ctx.inputs.clear();
-    ctx.globals.clear();
-    ctx.outputs.clear();
-}
-
-ENOKI_EXPORT std::string cuda_get_ptx() {
+ENOKI_EXPORT std::string cuda_get_ptx(const std::string& function_name) {
     Context &ctx = context();
 
     std::map<size_t, std::pair<std::unordered_set<uint32_t>,
@@ -1537,19 +1532,35 @@ ENOKI_EXPORT std::string cuda_get_ptx() {
     ctx.live.clear();
     ctx.dirty.clear();
 
-    std::ostringstream ptx_src;
-    for (auto it = sweeps.rbegin(); it != sweeps.rend(); ++it) {
-        size_t size = std::get<0>(*it);
-        const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*it));
+    if (sweeps.empty())
+        return std::string();
 
-        auto result = cuda_jit_assemble(size, schedule, ctx.include_printf, false);
+    if(ENOKI_UNLIKELY(sweeps.size() > 1))
+        throw std::runtime_error("cuda_get_ptx(): cannot extract multiple functions at once!");
 
-        if (std::get<0>(result).empty())
-            continue;
+    size_t size = std::get<0>(*sweeps.begin());
+    const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*sweeps.begin()));
+    auto result = cuda_jit_assemble(size, schedule, ctx.include_printf, false);
 
-        ptx_src << std::get<0>(result) << std::endl;
-    }
-    return ptx_src.str();
+    // Clear ptx-extraction related context
+    ctx.inputs.clear();
+    ctx.globals.clear();
+    ctx.outputs.clear();
+
+    if (std::get<0>(result).empty())
+        return std::string();
+
+    // Replace enoki's default function name
+    auto& ptx_str = std::get<0>(result);
+    auto f_name = ptx_str.find(ENOKI_DEFAULT_FUNCTION_NAME);
+
+    // This should NEVER happend
+    if (ENOKI_UNLIKELY(f_name == std::string::npos))
+        throw std::runtime_error("cuda_get_ptx(): could not find default function name in extracted ptx!");
+
+    ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), function_name);
+
+    return ptx_str;
 }
 
 ENOKI_EXPORT void cuda_var_mark_output(uint32_t index) {
