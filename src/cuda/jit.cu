@@ -1025,6 +1025,9 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
 
     std::vector<std::string> global_params_labels;
 
+    std::string unused_variable_name = "__unused_";
+    size_t unused_variable_count = 0;
+
     if (assemble_as_full_kernel) {
         oss << ".visible .entry " ENOKI_DEFAULT_FUNCTION_NAME "(.param .u64 ptr," << std::endl
             << "                               .param .u32 size) {" << std::endl;
@@ -1065,12 +1068,29 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
         oss << ".visible .func " ENOKI_DEFAULT_FUNCTION_NAME "(";
         for (size_t i = 0; i < ctx.inputs.size(); ++i) {
             uint32_t index = ctx.inputs[i];
-            oss << std::endl << "    .param." << cuda_register_type(ctx[index].type) << " in_" << reg_map[index] << ",";
+            bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
+
+            oss << std::endl << "    .param." << cuda_register_type(ctx[index].type) << " ";
+            if (unused) {
+                oss << unused_variable_name << unused_variable_count;
+                ++unused_variable_count;
+            } else {
+                oss << "in_" << reg_map[index];
+            }
+            oss << ",";
             if (!ctx[index].label.empty()) oss << "\t\t// " << ctx[index].label;
         }
         for (size_t i = 0; i < ctx.outputs.size(); ++i) {
             uint32_t index = ctx.outputs[i];
-            oss << std::endl << "    .param.u64 out_" << reg_map[index];
+            bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
+
+            oss << std::endl << "    .param.u64 ";
+            if (unused) {
+                oss << unused_variable_name << unused_variable_count;
+                ++unused_variable_count;
+            } else {
+                oss << "out_" << reg_map[index];
+            }
             if (i != ctx.outputs.size()-1) oss << ",";
             if (!ctx[index].label.empty()) oss << "\t\t// " << ctx[index].label;
         }
