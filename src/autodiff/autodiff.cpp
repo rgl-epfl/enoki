@@ -342,6 +342,7 @@ void Tape<Value>::set_label(Index idx, const char *label) {
     std::string name = "'" + std::string(label) + "'";
     Node &n = d->node(idx);
     n.label = name;
+    // TODO: fix this!
     enoki::set_label(n.grad, (label + std::string(".grad")).c_str());
 }
 

@@ -1033,7 +1033,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             const Variable& var = ctx[index];
             if (!var.data && !var.direct_pointer)
                 continue;
-            
+
             // if a variable has its data initialized, but is not
             // spectified as an input, it is considered a global
             auto find_input = std::find(ctx.inputs.begin(), ctx.inputs.end(), index);
@@ -1516,7 +1516,7 @@ ENOKI_EXPORT void cuda_eval(bool log_assembly) {
     }
 }
 
-ENOKI_EXPORT std::string cuda_get_ptx(const std::string& function_name) {
+ENOKI_EXPORT char *cuda_get_ptx(const char *function_name) {
     Context &ctx = context();
 
     std::map<size_t, std::pair<std::unordered_set<uint32_t>,
@@ -1532,7 +1532,7 @@ ENOKI_EXPORT std::string cuda_get_ptx(const std::string& function_name) {
     ctx.dirty.clear();
 
     if (sweeps.empty())
-        return std::string();
+        return nullptr;
 
     if(ENOKI_UNLIKELY(sweeps.size() > 1))
         throw std::runtime_error("cuda_get_ptx(): cannot extract multiple functions at once!");
@@ -1547,7 +1547,7 @@ ENOKI_EXPORT std::string cuda_get_ptx(const std::string& function_name) {
     ctx.outputs.clear();
 
     if (std::get<0>(result).empty())
-        return std::string();
+        return nullptr;
 
     // Replace enoki's default function name
     auto& ptx_str = std::get<0>(result);
@@ -1558,8 +1558,11 @@ ENOKI_EXPORT std::string cuda_get_ptx(const std::string& function_name) {
         throw std::runtime_error("cuda_get_ptx(): could not find default function name in extracted ptx!");
 
     ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), function_name);
+    // return ptx_str;
 
-    return ptx_str;
+    char *ptx_char = (char *)malloc((ptx_str.size() + 1) * sizeof(char));
+    strcpy(ptx_char, ptx_str.c_str());
+    return ptx_char;
 }
 
 ENOKI_EXPORT void cuda_var_mark_output(uint32_t index) {

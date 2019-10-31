@@ -442,6 +442,8 @@ struct struct_support<T, enable_if_dynamic_array_t<T>> {
     static ENOKI_INLINE T zero(size_t size) { return T::zero_(size); }
     static ENOKI_INLINE T empty(size_t size) { return T::empty_(size); }
 
+    static ENOKI_INLINE void set_label(const T&, const char*) { }
+
     static ENOKI_INLINE auto masked(T &value, const mask_t<T> &mask) {
         return detail::MaskedArray<T>{ value, mask };
     }
@@ -459,6 +461,7 @@ struct struct_support<T, enable_if_dynamic_array_t<T>> {
     static ENOKI_INLINE decltype(auto) detach(T &value) { return value; }
     static ENOKI_INLINE auto ref_wrap(T &value) { return value.ref_wrap_(); }
     static ENOKI_INLINE auto ref_wrap(const T &value) { return value.ref_wrap_(); }
+
 
     template <typename Mem>
     static ENOKI_INLINE size_t compress(Mem &mem, const T& value, const mask_t<T> &mask) {
