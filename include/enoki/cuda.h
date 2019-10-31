@@ -39,29 +39,23 @@ extern ENOKI_IMPORT void cuda_var_mark_output(uint32_t index);
 
 extern ENOKI_IMPORT void cuda_var_mark_input(uint32_t index);
 
-#define cuda_set_inputs(...) \
-    ENOKI_MAP_EXPR_F0(enoki::mark_input, __VA_ARGS__)
+template<typename Arg>
+ENOKI_INLINE void cuda_set_inputs(const Arg& a) { mark_input(a); }
 
-#define cuda_set_outputs(...) \
-    ENOKI_MAP_EXPR_F0(enoki::mark_output, __VA_ARGS__)
+template<typename Arg, typename... Args>
+ENOKI_INLINE void cuda_set_inputs(const Arg& a, const Args&... as) {
+    cuda_set_inputs(a);
+    cuda_set_inputs(as...);
+}
 
-// template<typename Arg>
-// ENOKI_INLINE void cuda_set_inputs(const Arg& a) { mark_input(a); }
+template<typename Arg>
+ENOKI_INLINE void cuda_set_outputs(const Arg& a) { mark_output(a); }
 
-// template<typename Arg, typename... Args>
-// ENOKI_INLINE void cuda_set_inputs(const Arg& a, const Args&... as) {
-//     cuda_set_inputs(a);
-//     cuda_set_inputs(as...);
-// }
-
-// template<typename Arg>
-// ENOKI_INLINE void cuda_set_outputs(const Arg& a) { mark_output(a); }
-
-// template<typename Arg, typename... Args>
-// ENOKI_INLINE void cuda_set_outputs(const Arg& a, const Args&... as) {
-//     cuda_set_outputs(a);
-//     cuda_set_outputs(as...);
-// }
+template<typename Arg, typename... Args>
+ENOKI_INLINE void cuda_set_outputs(const Arg& a, const Args&... as) {
+    cuda_set_outputs(a);
+    cuda_set_outputs(as...);
+}
 
 /// Invokes 'cuda_eval' if the given variable has not been evaluated yet
 extern ENOKI_IMPORT void cuda_eval_var(uint32_t index, bool log_assembly = false);
