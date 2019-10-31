@@ -1083,8 +1083,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
         << "    .reg.b64 %rd<" << n_vars << ">;" << std::endl
         << "    .reg.f32 %f<" << n_vars << ">;" << std::endl
         << "    .reg.f64 %d<" << n_vars << ">;" << std::endl
-        << "    .reg.pred %p<" << n_vars << ">;" << std::endl << std::endl
-        << std::endl;
+        << "    .reg.pred %p<" << n_vars << ">;" << std::endl;
 
     if (assemble_as_full_kernel) {
         oss << "    // Grid-stride loop setup" << std::endl

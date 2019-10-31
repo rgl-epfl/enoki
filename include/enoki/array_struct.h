@@ -151,6 +151,8 @@ struct struct_support {
     static ENOKI_INLINE T zero(size_t) { return T(0); }
     static ENOKI_INLINE T empty(size_t) { T x; return x; }
 
+    static ENOKI_INLINE void set_label(const T&, const char*) { }
+
     static ENOKI_INLINE detail::MaskedValue<T> masked(T &value, bool mask) {
         return detail::MaskedValue<T>{ value, mask };
     }
