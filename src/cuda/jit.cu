@@ -1057,7 +1057,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             oss << "// Declare global variables" << std::endl;
 
             for (size_t i = 0; i < ctx.globals.size(); ++i) {
-                oss << ".visible .global .align " << cuda_register_size(ctx[ctx.globals[i]].type)
+                oss << ".extern .global .align " << cuda_register_size(ctx[ctx.globals[i]].type)
                     << " ." << cuda_register_type(ctx[ctx.globals[i]].type) << " "
                     << global_params_labels[i] << ";" << std::endl;
             }
