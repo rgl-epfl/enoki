@@ -1089,17 +1089,19 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                         << " ." << cuda_register_type(ctx[index].type) << " "
                         << global_params_labels[i] << ";" << std::endl;
 
+                    std::string size_plus_name = std::to_string(global_params_labels[i].size()) + global_params_labels[i];
+
                     // TODO: stop hardcoding this
-                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_typename" << global_params_labels[i].size()
-                        << global_params_labels[i] << "E[6] = {102, 108, 111, 97, 116, 0};" << std::endl;
-                    oss << ".visible .global .align 4 .b8 _ZN21rti_internal_typeinfo" << global_params_labels[i].size()
-                        << global_params_labels[i] << "E[8] = {82, 97, 121, 0, 4, 0, 0, 0};" << std::endl;
-                    oss << ".visible .global .align 4 .u32 _ZN21rti_internal_typeenum" << global_params_labels[i].size()
-                        << global_params_labels[i] << "E = 4919;" << std::endl;
-                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_semantic" << global_params_labels[i].size()
-                        << global_params_labels[i] << "E[1];" << std::endl;
-                    oss << ".visible .global .align 1 .b8 _ZN23rti_internal_annotation" << global_params_labels[i].size()
-                        << global_params_labels[i] << "E[1];" << std::endl
+                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_typename" << size_plus_name
+                        << "E[6] = {102, 108, 111, 97, 116, 0};" << std::endl;
+                    oss << ".visible .global .align 4 .b8 _ZN21rti_internal_typeinfo" << size_plus_name
+                        << "E[8] = {82, 97, 121, 0, 4, 0, 0, 0};" << std::endl;
+                    oss << ".visible .global .align 4 .u32 _ZN21rti_internal_typeenum" << size_plus_name
+                        << "E = 4919;" << std::endl;
+                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_semantic" << size_plus_name
+                        << "E[1];" << std::endl;
+                    oss << ".visible .global .align 1 .b8 _ZN23rti_internal_annotation" << size_plus_name
+                        << "E[1];" << std::endl
                         << std::endl;
                 }
             }
