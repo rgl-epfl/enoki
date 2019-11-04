@@ -1088,6 +1088,19 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                     oss << ".visible .global .align " << cuda_register_size(ctx[index].type)
                         << " ." << cuda_register_type(ctx[index].type) << " "
                         << global_params_labels[i] << ";" << std::endl;
+
+                    // TODO: stop hardcoding this
+                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_typename" << global_params_labels[i].size()
+                        << global_params_labels[i] << "E[6] = {102, 108, 111, 97, 116, 0};" << std::endl;
+                    oss << ".visible .global .align 4 .b8 _ZN21rti_internal_typeinfo" << global_params_labels[i].size()
+                        << global_params_labels[i] << "E[8] = {82, 97, 121, 0, 4, 0, 0, 0};" << std::endl;
+                    oss << ".visible .global .align 4 .u32 _ZN21rti_internal_typeenum" << global_params_labels[i].size()
+                        << global_params_labels[i] << "E = 4919;" << std::endl;
+                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_semantic" << global_params_labels[i].size()
+                        << global_params_labels[i] << "E[1];" << std::endl;
+                    oss << ".visible .global .align 1 .b8 _ZN23rti_internal_annotation" << global_params_labels[i].size()
+                        << global_params_labels[i] << "E[1];" << std::endl
+                        << std::endl;
                 }
             }
 
@@ -1632,7 +1645,7 @@ ENOKI_EXPORT char* cuda_get_ptx_module() {
         throw std::runtime_error("cuda_get_ptx_module(): unable to allocate enough memory for the ptx module!");
 
     memcpy(module_str, header.c_str(), header.size());
-    
+
     size_t i = header.size();
     for (const auto& ptx_str: ptx_ctx.d->ptxs) {
         memcpy(module_str + i, ptx_str.c_str(), ptx_str.size());
