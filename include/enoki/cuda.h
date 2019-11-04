@@ -23,6 +23,14 @@ NAMESPACE_BEGIN(enoki)
 //! @{ \name Imports from libenoki-cuda.so
 // -----------------------------------------------------------------------
 
+
+struct PtxModuleContext
+{
+private:
+    struct Detail;
+    Detail* d = nullptr;
+};
+
 /// Initialize the tracing JIT
 extern ENOKI_IMPORT void cuda_init();
 
@@ -32,12 +40,13 @@ extern ENOKI_IMPORT void cuda_shutdown();
 /// Compile and evaluate the trace up to the current instruction
 extern ENOKI_IMPORT void cuda_eval(bool log_assembly /* = false */);
 
+/// 
+extern ENOKI_IMPORT void cuda_create_ptx_module_context();
+extern ENOKI_IMPORT void cuda_destroy_ptx_module_context();
+
 /// Generate PTX code for the trace up to the current instruction
-extern ENOKI_IMPORT char *cuda_get_ptx(const char *function_name);
-
-extern ENOKI_IMPORT void cuda_var_mark_output(uint32_t index);
-
-extern ENOKI_IMPORT void cuda_var_mark_input(uint32_t index);
+extern ENOKI_IMPORT void cuda_record_ptx(const char *function_name);
+extern ENOKI_IMPORT char* cuda_get_ptx_module();
 
 template<typename Arg>
 ENOKI_INLINE void cuda_set_inputs(const Arg& a) { mark_input(a); }
@@ -56,6 +65,10 @@ ENOKI_INLINE void cuda_set_outputs(const Arg& a, const Args&... as) {
     cuda_set_outputs(a);
     cuda_set_outputs(as...);
 }
+
+extern ENOKI_IMPORT void cuda_var_mark_output(uint32_t index);
+
+extern ENOKI_IMPORT void cuda_var_mark_input(uint32_t index);
 
 /// Invokes 'cuda_eval' if the given variable has not been evaluated yet
 extern ENOKI_IMPORT void cuda_eval_var(uint32_t index, bool log_assembly = false);
