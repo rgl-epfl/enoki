@@ -988,10 +988,12 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
     std::vector<void *> ptrs;
     size_t n_in = 0, n_out = 0, n_arith = 0;
 
-    oss << ".version 6.3" << std::endl
-        << ".target sm_" << ENOKI_CUDA_COMPUTE_CAPABILITY << std::endl
-        << ".address_size 64" << std::endl
-        << std::endl;
+    if (assemble_as_full_kernel) {
+        oss << ".version 6.3" << std::endl
+            << ".target sm_" << ENOKI_CUDA_COMPUTE_CAPABILITY << std::endl
+            << ".address_size 64" << std::endl
+            << std::endl;
+    }
 
 #if !defined(NDEBUG)
     if (ctx.log_level >= 4)
@@ -1611,7 +1613,15 @@ ENOKI_EXPORT void cuda_record_ptx(const char *function_name) {
 ENOKI_EXPORT char* cuda_get_ptx_module() {
     PtxModuleContext &ptx_ctx = context().ptx_ctx;
 
-    size_t total_module_length = 0;
+    std::ostringstream oss;
+    oss << ".version 6.3" << std::endl
+        << ".target sm_" << ENOKI_CUDA_COMPUTE_CAPABILITY << std::endl
+        << ".address_size 64" << std::endl
+        << std::endl;
+
+    std::string header = oss.str();
+
+    size_t total_module_length = header.size();
     for (const auto& ptx_str: ptx_ctx.d->ptxs)
         total_module_length += ptx_str.size();
 
@@ -1621,7 +1631,9 @@ ENOKI_EXPORT char* cuda_get_ptx_module() {
     if (ENOKI_UNLIKELY(!module_str))
         throw std::runtime_error("cuda_get_ptx_module(): unable to allocate enough memory for the ptx module!");
 
-    size_t i = 0;
+    memcpy(module_str, header.c_str(), header.size());
+    
+    size_t i = header.size();
     for (const auto& ptx_str: ptx_ctx.d->ptxs) {
         memcpy(module_str + i, ptx_str.c_str(), ptx_str.size());
         i += ptx_str.size();
