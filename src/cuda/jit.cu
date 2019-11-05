@@ -572,6 +572,24 @@ ENOKI_EXPORT const char *cuda_register_name(EnokiType type) {
     }
 }
 
+const char *cuda_register_optix_name(EnokiType type) {
+    switch (type) {
+        case EnokiType::UInt8:      return "E[8] = {117, 105, 110, 116, 56, 95, 116, 0}";
+        case EnokiType::Int8:       return "E[7] = {105, 110, 116, 56, 95, 116, 0}";
+        case EnokiType::UInt16:     return "E[9] = {117, 105, 110, 116, 49, 54, 95, 116, 0}";
+        case EnokiType::Int16:      return "E[8] = {105, 110, 116, 49, 54, 95, 116, 0}";
+        case EnokiType::UInt32:     return "E[9] = {117, 105, 110, 116, 51, 50, 95, 116, 0}";
+        case EnokiType::Int32:      return "E[8] = {105, 110, 116, 51, 50, 95, 116, 0};";
+        case EnokiType::Pointer:
+        case EnokiType::UInt64:     return "E[9] = {117, 105, 110, 116, 54, 52, 95, 116, 0}";
+        case EnokiType::Int64:      return "E[8] = {105, 110, 116, 54, 52, 95, 116, 0}";
+        case EnokiType::Float32:    return "E[6] = {102, 108, 111, 97, 116, 0}";
+        case EnokiType::Float64:    return "E[7] = {100, 111, 117, 98, 108, 101, 0}";
+        case EnokiType::Bool:       return "E[5] = {98, 111, 111, 108, 0}";
+        default: return nullptr;
+    }
+}
+
 //! @}
 // -----------------------------------------------------------------------
 
@@ -1093,9 +1111,9 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
 
                     // TODO: stop hardcoding this
                     oss << ".visible .global .align 1 .b8 _ZN21rti_internal_typename" << size_plus_name
-                        << "E[6] = {102, 108, 111, 97, 116, 0};" << std::endl;
+                        << cuda_register_optix_name(ctx[index].type) << ";" << std::endl;
                     oss << ".visible .global .align 4 .b8 _ZN21rti_internal_typeinfo" << size_plus_name
-                        << "E[8] = {82, 97, 121, 0, 4, 0, 0, 0};" << std::endl;
+                        << "E[8] = {82, 97, 121, 0, " << cuda_register_size(ctx[index].type) << ", 0, 0, 0};" << std::endl;
                     oss << ".visible .global .align 4 .u32 _ZN21rti_internal_typeenum" << size_plus_name
                         << "E = 4919;" << std::endl;
                     oss << ".visible .global .align 1 .b8 _ZN21rti_internal_semantic" << size_plus_name
