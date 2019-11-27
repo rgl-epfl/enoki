@@ -153,6 +153,8 @@ struct struct_support {
 
     static ENOKI_INLINE void set_label(const T&, const char*) { }
 
+    static ENOKI_INLINE void backward(const T& v, bool free_graph) { std::cout << __LINE__ << std::endl; }
+
     static ENOKI_INLINE detail::MaskedValue<T> masked(T &value, bool mask) {
         return detail::MaskedValue<T>{ value, mask };
     }
@@ -221,6 +223,11 @@ ENOKI_INLINE void set_label(const Value &value, const char *label) {
     struct_support_t<Value>::set_label(value, label);
 }
 
+template<typename Value>
+ENOKI_INLINE void backward(const Value &value, bool free_graph = true) {
+    struct_support_t<Value>::backward(value, free_graph);
+}
+
 template<typename Value, enable_if_t<!is_cuda_array_v<Value>> = 0>
 ENOKI_INLINE void mark_output(const Value &value) {
     struct_support_t<Value>::mark_output(value);
@@ -285,6 +292,15 @@ struct struct_support<T, enable_if_static_array_t<T>> {
 
     static ENOKI_INLINE auto masked(T &value, const mask_t<T> &mask) {
         return detail::MaskedArray<T>{ value, mask };
+    }
+
+    static ENOKI_INLINE decltype(auto) backward(const T& v, bool free_graph) {
+        if constexpr (!is_diff_array_v<T>)
+            return;
+        else {
+            for (size_t i = 0; i < Size; ++i)
+                enoki::backward(v.coeff(i), free_graph);
+        }
     }
 
     template <typename T2>
@@ -443,6 +459,8 @@ struct struct_support<T, enable_if_dynamic_array_t<T>> {
     static ENOKI_INLINE T empty(size_t size) { return T::empty_(size); }
 
     static ENOKI_INLINE void set_label(const T&, const char*) { }
+
+    static ENOKI_INLINE void backward(const T& v, bool free_graph) { std::cout << __LINE__ << std::endl; }
 
     static ENOKI_INLINE auto masked(T &value, const mask_t<T> &mask) {
         return detail::MaskedArray<T>{ value, mask };
