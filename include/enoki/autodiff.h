@@ -1390,8 +1390,7 @@ template <typename T> void forward(const T& a, bool free_graph = true) {
     a.forward_(free_graph);
 }
 
-template <typename T, enable_if_t<is_diff_array_v<T>> = 0>
-void backward(const T& a, bool free_graph = true) {
+template <typename T> void backward(const T& a, bool free_graph = true) {
     a.backward_(free_graph);
 }
 
