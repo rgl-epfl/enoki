@@ -1128,6 +1128,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
         }
 
         oss << ".visible .func " ENOKI_DEFAULT_FUNCTION_NAME "(";
+        bool has_outputs = ptx_ctx.d->outputs.size() > 0;
         for (size_t i = 0; i < ptx_ctx.d->inputs.size(); ++i) {
             uint32_t index = ptx_ctx.d->inputs[i];
             bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
@@ -1139,7 +1140,8 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             } else {
                 oss << "in_" << reg_map[index];
             }
-            oss << ",";
+            if (has_outputs || i != ptx_ctx.d->inputs.size() - 1)
+                oss << ",";
             if (!ctx[index].label.empty()) oss << "        // " << ctx[index].label;
         }
         for (size_t i = 0; i < ptx_ctx.d->outputs.size(); ++i) {
