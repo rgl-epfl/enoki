@@ -1129,6 +1129,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
         }
 
         oss << ".visible .func " ENOKI_DEFAULT_FUNCTION_NAME "(";
+        bool has_outputs = ptx_ctx.d->outputs.size() > 0;
         for (size_t i = 0; i < ptx_ctx.d->inputs.size(); ++i) {
             uint32_t index = ptx_ctx.d->inputs[i];
             bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
@@ -1140,8 +1141,9 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             } else {
                 oss << "in_" << reg_map[index];
             }
-            oss << ",";
-            if (!ctx[index].label.empty()) oss << "\t\t// " << ctx[index].label;
+            if (has_outputs || i != ptx_ctx.d->inputs.size() - 1)
+                oss << ",";
+            if (!ctx[index].label.empty()) oss << "        // " << ctx[index].label;
         }
         for (size_t i = 0; i < ptx_ctx.d->outputs.size(); ++i) {
             uint32_t index = ptx_ctx.d->outputs[i];
@@ -1699,14 +1701,14 @@ ENOKI_EXPORT void cuda_destroy_ptx_module_context() {
 ENOKI_EXPORT void cuda_var_mark_output(uint32_t index) {
     Context &ctx = context();
     if (ENOKI_UNLIKELY(ctx[index].data || ctx[index].direct_pointer))
-        throw std::runtime_error("cuda_var_set_modifier(): variable cannot be set "
-                                 "as output with a initial value!");
+        throw std::runtime_error("cuda_var_mark_output(): variable cannot be set "
+                                 "as output with an initial value!");
     ctx.ptx_ctx.d->outputs.push_back(index);
 }
 ENOKI_EXPORT void cuda_var_mark_input(uint32_t index) {
     Context &ctx = context();
     if (ENOKI_UNLIKELY(!ctx[index].data && !ctx[index].direct_pointer))
-        throw std::runtime_error("cuda_var_set_modifier(): variable cannot be set "
+        throw std::runtime_error("cuda_var_mark_input(): variable cannot be set "
                                  "as input without being previously initialized!");
     ctx.ptx_ctx.d->inputs.push_back(index);
 }

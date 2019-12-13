@@ -40,7 +40,7 @@ extern ENOKI_IMPORT void cuda_shutdown();
 /// Compile and evaluate the trace up to the current instruction
 extern ENOKI_IMPORT void cuda_eval(bool log_assembly /* = false */);
 
-/// 
+///
 extern ENOKI_IMPORT void cuda_create_ptx_module_context();
 extern ENOKI_IMPORT void cuda_destroy_ptx_module_context();
 
@@ -929,7 +929,10 @@ ENOKI_INLINE void mark_output(const T& a) {
         for (size_t i = 0; i < T::Size; ++i)
             mark_output(a.coeff(i));
     } else {
-        cuda_var_mark_output(a.index_());
+        if constexpr (is_diff_array_v<T>)
+            cuda_var_mark_output(a.value_().index_());
+        else
+            cuda_var_mark_output(a.index_());
     }
 }
 
@@ -939,7 +942,10 @@ ENOKI_INLINE void mark_input(const T& a) {
         for (size_t i = 0; i < T::Size; ++i)
             mark_input(a.coeff(i));
     } else {
-        cuda_var_mark_input(a.index_());
+        if constexpr (is_diff_array_v<T>)
+            cuda_var_mark_input(a.value_().index_());
+        else
+            cuda_var_mark_input(a.index_());
     }
 }
 
