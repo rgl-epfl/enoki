@@ -67,6 +67,7 @@ private:
 
 struct PtxModuleContext::Detail
 {
+    bool recording = false;
     std::set<uint32_t> already_declared_globals;
     std::vector<std::string> ptxs;
     /// Stores variables in order of apparition in the desiered function signature
@@ -1510,6 +1511,9 @@ static void sweep_recursive(Context &ctx,
 ENOKI_EXPORT void cuda_eval(bool log_assembly) {
     Context &ctx = context();
 
+    if (ctx.ptx_ctx.d->recording)
+        throw std::runtime_error("cuda_eval(): cannot trigger cuda evaluation while recording ptx module!");
+
     for (auto callback: ctx.callbacks)
         callback.first(callback.second);
 
@@ -1617,30 +1621,33 @@ ENOKI_EXPORT void cuda_record_ptx(const char *function_name) {
     if (sweeps.empty())
         return;
 
-    if(ENOKI_UNLIKELY(sweeps.size() > 1))
-        throw std::runtime_error("cuda_get_ptx(): cannot extract multiple functions at once!");
+    // if(ENOKI_UNLIKELY(sweeps.size() > 1))
+    //     throw std::runtime_error("cuda_get_ptx(): cannot extract multiple functions at once!");
 
-    size_t size = std::get<0>(*sweeps.begin());
-    const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*sweeps.begin()));
-    auto result = cuda_jit_assemble(size, schedule, ctx.include_printf, false);
+    for (const auto& kv: sweeps) {
+        size_t size = kv.first; //std::get<0>(*sweeps.begin());
+        const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(kv));
+        // const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*sweeps.begin()));
+        auto result = cuda_jit_assemble(size, schedule, ctx.include_printf, false);
 
-    // Clear ptx-extraction related context
-    ptx_ctx.d->inputs.clear();
-    ptx_ctx.d->outputs.clear();
+        // Clear ptx-extraction related context
+        ptx_ctx.d->inputs.clear();
+        ptx_ctx.d->outputs.clear();
 
-    if (std::get<0>(result).empty())
-        return;
+        if (std::get<0>(result).empty())
+            return;
 
-    // Replace enoki's default function name
-    auto& ptx_str = std::get<0>(result);
-    auto f_name = ptx_str.find(ENOKI_DEFAULT_FUNCTION_NAME);
+        // Replace enoki's default function name
+        auto& ptx_str = std::get<0>(result);
+        auto f_name = ptx_str.find(ENOKI_DEFAULT_FUNCTION_NAME);
 
-    // This should NEVER happend
-    if (ENOKI_UNLIKELY(f_name == std::string::npos))
-        throw std::runtime_error("cuda_record_ptx(): could not find default function name in extracted ptx!");
+        // This should NEVER happend
+        if (ENOKI_UNLIKELY(f_name == std::string::npos))
+            throw std::runtime_error("cuda_record_ptx(): could not find default function name in extracted ptx!");
 
-    ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), function_name);
-    ptx_ctx.d->ptxs.push_back(ptx_str);
+        ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), function_name);
+        ptx_ctx.d->ptxs.push_back(ptx_str);
+    }
 }
 
 ENOKI_EXPORT char* cuda_get_ptx_module() {
@@ -1680,10 +1687,13 @@ ENOKI_EXPORT void cuda_create_ptx_module_context() {
 
     ctx.ptx_ctx.d->ptxs.clear();
     ctx.ptx_ctx.d->already_declared_globals.clear();
+    ctx.ptx_ctx.d->recording = true;
 }
 
 ENOKI_EXPORT void cuda_destroy_ptx_module_context() {
-    // noop for now
+    Context &ctx = context();
+
+    ctx.ptx_ctx.d->recording = false;
 }
 
 ENOKI_EXPORT void cuda_var_mark_output(uint32_t index) {
