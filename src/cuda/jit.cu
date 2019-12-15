@@ -1623,33 +1623,30 @@ ENOKI_EXPORT void cuda_record_ptx(const char *function_name) {
     if (sweeps.empty())
         return;
 
-    // if(ENOKI_UNLIKELY(sweeps.size() > 1))
-    //     throw std::runtime_error("cuda_get_ptx(): cannot extract multiple functions at once!");
+    if(ENOKI_UNLIKELY(sweeps.size() > 1))
+        throw std::runtime_error("cuda_get_ptx(): cannot extract multiple functions at once!");
 
-    for (const auto& kv: sweeps) {
-        size_t size = kv.first; //std::get<0>(*sweeps.begin());
-        const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(kv));
-        // const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*sweeps.begin()));
-        auto result = cuda_jit_assemble(size, schedule, ctx.include_printf, false);
+    size_t size = std::get<0>(*sweeps.begin());
+    const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*sweeps.begin()));
+    auto result = cuda_jit_assemble(size, schedule, ctx.include_printf, false);
 
-        // Clear ptx-extraction related context
-        ptx_ctx.d->inputs.clear();
-        ptx_ctx.d->outputs.clear();
+    // Clear ptx-extraction related context
+    ptx_ctx.d->inputs.clear();
+    ptx_ctx.d->outputs.clear();
 
-        if (std::get<0>(result).empty())
-            return;
+    if (std::get<0>(result).empty())
+        return;
 
-        // Replace enoki's default function name
-        auto& ptx_str = std::get<0>(result);
-        auto f_name = ptx_str.find(ENOKI_DEFAULT_FUNCTION_NAME);
+    // Replace enoki's default function name
+    auto& ptx_str = std::get<0>(result);
+    auto f_name = ptx_str.find(ENOKI_DEFAULT_FUNCTION_NAME);
 
-        // This should NEVER happend
-        if (ENOKI_UNLIKELY(f_name == std::string::npos))
-            throw std::runtime_error("cuda_record_ptx(): could not find default function name in extracted ptx!");
+    // This should NEVER happend
+    if (ENOKI_UNLIKELY(f_name == std::string::npos))
+        throw std::runtime_error("cuda_record_ptx(): could not find default function name in extracted ptx!");
 
-        ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), function_name);
-        ptx_ctx.d->ptxs.push_back(ptx_str);
-    }
+    ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), function_name);
+    ptx_ctx.d->ptxs.push_back(ptx_str);
 }
 
 ENOKI_EXPORT char* cuda_get_ptx_module() {
