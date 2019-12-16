@@ -44,8 +44,10 @@ extern ENOKI_IMPORT void cuda_eval(bool log_assembly /* = false */);
 extern ENOKI_IMPORT void cuda_create_ptx_module_context();
 extern ENOKI_IMPORT void cuda_destroy_ptx_module_context();
 
+extern ENOKI_IMPORT void cuda_start_recording_ptx_function(const char *function_name);
+extern ENOKI_IMPORT void cuda_stop_recording_ptx_function();
+
 /// Generate PTX code for the trace up to the current instruction
-extern ENOKI_IMPORT void cuda_record_ptx(const char *function_name);
 extern ENOKI_IMPORT char* cuda_get_ptx_module();
 
 template<typename Arg>

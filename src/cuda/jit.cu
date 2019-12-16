@@ -68,6 +68,7 @@ private:
 struct PtxModuleContext::Detail
 {
     bool recording = false;
+    const char* current_ptx_function_name;
     std::set<uint32_t> already_declared_globals;
     std::vector<std::string> ptxs;
     /// Stores variables in order of apparition in the desiered function signature
@@ -1604,9 +1605,62 @@ ENOKI_EXPORT void cuda_eval(bool log_assembly) {
     }
 }
 
-ENOKI_EXPORT void cuda_record_ptx(const char *function_name) {
+ENOKI_EXPORT char* cuda_get_ptx_module() {
+    PtxModuleContext &ptx_ctx = context().ptx_ctx;
+
+    std::ostringstream oss;
+    oss << ".version 6.3" << std::endl
+        << ".target sm_" << ENOKI_CUDA_COMPUTE_CAPABILITY << std::endl
+        << ".address_size 64" << std::endl
+        << std::endl;
+
+    std::string header = oss.str();
+
+    size_t total_module_length = header.size();
+    for (const auto& ptx_str: ptx_ctx.d->ptxs)
+        total_module_length += ptx_str.size();
+
+    char* module_str = (char*)malloc(total_module_length+1);
+    module_str[total_module_length] = '\0';
+
+    if (ENOKI_UNLIKELY(!module_str))
+        throw std::runtime_error("cuda_get_ptx_module(): unable to allocate enough memory for the ptx module!");
+
+    memcpy(module_str, header.c_str(), header.size());
+
+    size_t i = header.size();
+    for (const auto& ptx_str: ptx_ctx.d->ptxs) {
+        memcpy(module_str + i, ptx_str.c_str(), ptx_str.size());
+        i += ptx_str.size();
+    }
+
+    return module_str;
+}
+
+ENOKI_EXPORT void cuda_create_ptx_module_context() {
+    Context &ctx = context();
+
+    ctx.ptx_ctx.d->ptxs.clear();
+    ctx.ptx_ctx.d->already_declared_globals.clear();
+    context().ptx_ctx.d->current_ptx_function_name = nullptr;
+}
+
+ENOKI_EXPORT void cuda_destroy_ptx_module_context() {
+    // should not be necessary
+    context().ptx_ctx.d->recording = false;
+}
+
+ENOKI_EXPORT void cuda_start_recording_ptx_function(const char *function_name) {
+    cuda_eval();
+    context().ptx_ctx.d->recording = true;
+    context().ptx_ctx.d->current_ptx_function_name = function_name;
+}
+
+ENOKI_EXPORT void cuda_stop_recording_ptx_function() {
     Context &ctx = context();
     PtxModuleContext &ptx_ctx = ctx.ptx_ctx;
+
+    ptx_ctx.d->recording = false;
 
     std::map<size_t, std::pair<std::unordered_set<uint32_t>,
                                std::vector<uint32_t>>> sweeps;
@@ -1645,54 +1699,10 @@ ENOKI_EXPORT void cuda_record_ptx(const char *function_name) {
     if (ENOKI_UNLIKELY(f_name == std::string::npos))
         throw std::runtime_error("cuda_record_ptx(): could not find default function name in extracted ptx!");
 
-    ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), function_name);
+    ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), ptx_ctx.d->current_ptx_function_name);
+    context().ptx_ctx.d->current_ptx_function_name = nullptr;
+    
     ptx_ctx.d->ptxs.push_back(ptx_str);
-}
-
-ENOKI_EXPORT char* cuda_get_ptx_module() {
-    PtxModuleContext &ptx_ctx = context().ptx_ctx;
-
-    std::ostringstream oss;
-    oss << ".version 6.3" << std::endl
-        << ".target sm_" << ENOKI_CUDA_COMPUTE_CAPABILITY << std::endl
-        << ".address_size 64" << std::endl
-        << std::endl;
-
-    std::string header = oss.str();
-
-    size_t total_module_length = header.size();
-    for (const auto& ptx_str: ptx_ctx.d->ptxs)
-        total_module_length += ptx_str.size();
-
-    char* module_str = (char*)malloc(total_module_length+1);
-    module_str[total_module_length] = '\0';
-
-    if (ENOKI_UNLIKELY(!module_str))
-        throw std::runtime_error("cuda_get_ptx_module(): unable to allocate enough memory for the ptx module!");
-
-    memcpy(module_str, header.c_str(), header.size());
-
-    size_t i = header.size();
-    for (const auto& ptx_str: ptx_ctx.d->ptxs) {
-        memcpy(module_str + i, ptx_str.c_str(), ptx_str.size());
-        i += ptx_str.size();
-    }
-
-    return module_str;
-}
-
-ENOKI_EXPORT void cuda_create_ptx_module_context() {
-    Context &ctx = context();
-
-    ctx.ptx_ctx.d->ptxs.clear();
-    ctx.ptx_ctx.d->already_declared_globals.clear();
-    ctx.ptx_ctx.d->recording = true;
-}
-
-ENOKI_EXPORT void cuda_destroy_ptx_module_context() {
-    Context &ctx = context();
-
-    ctx.ptx_ctx.d->recording = false;
 }
 
 ENOKI_EXPORT void cuda_var_mark_output(uint32_t index) {
