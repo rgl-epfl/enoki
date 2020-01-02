@@ -90,6 +90,9 @@ extern ENOKI_IMPORT void* cuda_var_ptr(uint32_t);
 /// Retroactively adjust the recorded size of a variable
 extern ENOKI_IMPORT uint32_t cuda_var_set_size(uint32_t index, size_t size, bool copy = false);
 
+/// Returns true if the variable is dirty
+extern ENOKI_IMPORT bool cuda_var_is_dirty(uint32_t);
+
 /// Mark a variable as dirty (e.g. due to scatter)
 extern ENOKI_IMPORT void cuda_var_mark_dirty(uint32_t);
 

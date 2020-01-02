@@ -688,6 +688,12 @@ ENOKI_EXPORT void cuda_var_mark_side_effect(uint32_t index) {
     ctx[index].side_effect = true;
 }
 
+ENOKI_EXPORT bool cuda_var_is_dirty(uint32_t index) {
+    Context &ctx = context();
+    assert(index >= ENOKI_CUDA_REG_RESERVED);
+    return ctx[index].dirty;
+}
+
 ENOKI_EXPORT void cuda_var_mark_dirty(uint32_t index) {
     Context &ctx = context();
 #if !defined(NDEBUG)
@@ -1701,7 +1707,7 @@ ENOKI_EXPORT void cuda_stop_recording_ptx_function() {
 
     ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), ptx_ctx.d->current_ptx_function_name);
     context().ptx_ctx.d->current_ptx_function_name = nullptr;
-    
+
     ptx_ctx.d->ptxs.push_back(ptx_str);
 }
 
