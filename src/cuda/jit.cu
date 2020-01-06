@@ -581,7 +581,7 @@ const char *cuda_register_optix_name(EnokiType type) {
         case EnokiType::UInt16:     return "E[9] = {117, 105, 110, 116, 49, 54, 95, 116, 0}";
         case EnokiType::Int16:      return "E[8] = {105, 110, 116, 49, 54, 95, 116, 0}";
         case EnokiType::UInt32:     return "E[9] = {117, 105, 110, 116, 51, 50, 95, 116, 0}";
-        case EnokiType::Int32:      return "E[8] = {105, 110, 116, 51, 50, 95, 116, 0};";
+        case EnokiType::Int32:      return "E[8] = {105, 110, 116, 51, 50, 95, 116, 0}";
         case EnokiType::Pointer:
         case EnokiType::UInt64:     return "E[9] = {117, 105, 110, 116, 54, 52, 95, 116, 0}";
         case EnokiType::Int64:      return "E[8] = {105, 110, 116, 54, 52, 95, 116, 0}";
