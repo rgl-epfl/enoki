@@ -95,7 +95,7 @@ private:
     void backward(Index index, bool free_graph);
     void forward(Index index, bool free_graph);
     void set_gradient(Index index, const Type &value,
-                      bool backward = true);
+                      bool backward = true, bool add_to_graph = true);
     void set_label(Index index, const char *name);
     const Type &gradient(Index index);
     std::string graphviz(const std::vector<Index> &indices);
@@ -1142,11 +1142,11 @@ public:
             return tape()->gradient(index);
     }
 
-    void set_gradient_(const Type &value, bool backward = true) {
+    void set_gradient_(const Type &value, bool backward = true, bool add_to_graph = true) {
         if constexpr (!Enabled)
             fail_unsupported("set_gradient_");
         else
-            return tape()->set_gradient(m_index, value, backward);
+            return tape()->set_gradient(m_index, value, backward, add_to_graph);
     }
 
     //! @}
@@ -1364,12 +1364,12 @@ template <typename T> auto gradient_index(const T &a) {
     }
 }
 
-template <typename T1, typename T2> void set_gradient(T1 &a, const T2 &b, bool backward = true) {
+template <typename T1, typename T2> void set_gradient(T1 &a, const T2 &b, bool backward = true, bool add_to_graph = true) {
     if constexpr (array_depth_v<T1> >= 2) {
         for (size_t i = 0; i < array_size_v<T1>; ++i)
-            set_gradient(a[i], b[i], backward);
+            set_gradient(a[i], b[i], backward, add_to_graph);
     } else if constexpr (is_diff_array_v<T1>) {
-        a.set_gradient_(b, backward);
+        a.set_gradient_(b, backward, add_to_graph);
     } else {
         static_assert(detail::false_v<T1, T2>, "The given array does not support derivatives.");
     }
