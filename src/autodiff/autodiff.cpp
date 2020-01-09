@@ -29,6 +29,9 @@
 /// Max. allowed cost in number of arithmetic operations that a simplification can do
 #define ENOKI_AUTODIFF_MAX_SIMPLIFICATION_COST 10
 
+/// Save kernel size by disabling safe operations (which change NaN semantics in backprop)
+#define ENOKI_AUTODIFF_DISABLE_SAFE_OPS
+
 NAMESPACE_BEGIN(enoki)
 
 using Index = uint32_t;
@@ -1086,6 +1089,10 @@ template <typename Value> std::string Tape<Value>::whos() const {
 
 template <typename Value> Value safe_mul(const Value &value1, const Value &value2) {
     Value tentative = value1 * value2;
+
+#if defined(ENOKI_AUTODIFF_DISABLE_SAFE_OPS)
+    return tentative;
+#else
     if constexpr (!is_cuda_array_v<Value>) {
         Value zero = scalar_t<Value>(0);
         mask_t<Value> is_zero = eq(value1, zero) || eq(value2, zero);
@@ -1096,10 +1103,15 @@ template <typename Value> Value safe_mul(const Value &value1, const Value &value
              m2 = Mask::from_index_(cuda_trace_append(EnokiType::Bool, "setp.eq.or.f32 $r1, $r2, 0.0, $r3", value2.index_(), m1.index_()));
         return Value::from_index_(cuda_trace_append(Value::Type, "selp.$t1 $r1, 0.0, $r2, $r3", tentative.index_(), m2.index_()));
     }
+#endif
 }
 
 template <typename Value> Value safe_fmadd(const Value &value1, const Value &value2, const Value &value3) {
     Value tentative = fmadd(value1, value2, value3);
+
+#if defined(ENOKI_AUTODIFF_DISABLE_SAFE_OPS)
+    return tentative;
+#else
     if constexpr (!is_cuda_array_v<Value>) {
         Value zero = scalar_t<Value>(0);
         mask_t<Value> is_zero = eq(value1, zero) || eq(value2, zero);
@@ -1110,6 +1122,7 @@ template <typename Value> Value safe_fmadd(const Value &value1, const Value &val
              m2 = Mask::from_index_(cuda_trace_append(EnokiType::Bool, "setp.eq.or.f32 $r1, $r2, 0.0, $r3", value2.index_(), m1.index_()));
         return Value::from_index_(cuda_trace_append(Value::Type, "selp.$t1 $r1, $r2, $r3, $r4", value3.index_(), tentative.index_(), m2.index_()));
     }
+#endif
 }
 
 template struct ENOKI_EXPORT Tape<float>;
