@@ -30,7 +30,7 @@
 #define ENOKI_AUTODIFF_MAX_SIMPLIFICATION_COST 10
 
 /// Save kernel size by disabling safe operations (which change NaN semantics in backprop)
-#define ENOKI_AUTODIFF_DISABLE_SAFE_OPS
+// #define ENOKI_AUTODIFF_DISABLE_SAFE_OPS
 
 NAMESPACE_BEGIN(enoki)
 
