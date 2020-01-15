@@ -1681,8 +1681,12 @@ ENOKI_EXPORT void cuda_stop_recording_ptx_function() {
     ctx.live.clear();
     ctx.dirty.clear();
 
-    if (sweeps.empty())
+    if (sweeps.empty()) {
+        ptx_ctx.d->inputs.clear();
+        ptx_ctx.d->outputs.clear();
+        context().ptx_ctx.d->current_ptx_function_name = nullptr;
         return;
+    }
 
     if(ENOKI_UNLIKELY(sweeps.size() > 1))
         throw std::runtime_error("cuda_get_ptx(): cannot extract multiple functions at once!");
@@ -1695,8 +1699,10 @@ ENOKI_EXPORT void cuda_stop_recording_ptx_function() {
     ptx_ctx.d->inputs.clear();
     ptx_ctx.d->outputs.clear();
 
-    if (std::get<0>(result).empty())
+    if (std::get<0>(result).empty()) {
+        context().ptx_ctx.d->current_ptx_function_name = nullptr;
         return;
+    }
 
     // Replace enoki's default function name
     auto& ptx_str = std::get<0>(result);
