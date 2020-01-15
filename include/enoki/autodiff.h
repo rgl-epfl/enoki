@@ -102,6 +102,7 @@ private:
     /// Current log level (0 == none, 1 == minimal, 2 == moderate, 3 == high, 4 == everything)
     void set_log_level(uint32_t);
     uint32_t log_level() const;
+    bool graph_simplification_enabled() const;
     void set_graph_simplification(bool);
     void simplify_graph();
     std::string whos() const;
@@ -1270,6 +1271,13 @@ public:
             return 0;
     }
 
+
+    static bool graph_simplification_enabled_() {
+        if constexpr (Enabled)
+            return tape()->graph_simplification_enabled();
+        else
+            return false;
+    }
 
     static void set_graph_simplification_(uint32_t level) {
         if constexpr (Enabled)

@@ -256,6 +256,10 @@ template <typename Value> uint32_t Tape<Value>::log_level() const {
     return d->log_level;
 }
 
+template <typename Value> bool Tape<Value>::graph_simplification_enabled() const {
+    return d->graph_simplification;
+}
+
 template <typename Value> void Tape<Value>::set_graph_simplification(bool value) {
     d->graph_simplification = value;
 }

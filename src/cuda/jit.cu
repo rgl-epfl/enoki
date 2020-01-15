@@ -1416,6 +1416,7 @@ ENOKI_EXPORT void cuda_jit_run(Context &ctx,
         if (ctx.log_level >= 2) {
             char *ptax_details = strstr(info_log, "ptxas info");
             char *details = strstr(info_log, "\ninfo    : used");
+
             if (details) {
                 details += 16;
                 char *details_len = strstr(details, "registers,");
