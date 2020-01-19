@@ -1141,7 +1141,12 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             uint32_t index = ptx_ctx.d->inputs[i];
             bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
 
-            oss << std::endl << "    .param." << cuda_register_type(ctx[index].type) << " ";
+            // TODO: just a workaround, predicate type doesn't seem to be allowed in signature
+            auto var_type = ctx[index].type;
+            if (var_type == EnokiType::Bool)
+                var_type = EnokiType::Float32;
+
+            oss << std::endl << "    .param." << cuda_register_type(var_type) << " ";
             if (unused) {
                 oss << unused_variable_name << unused_variable_count;
                 ++unused_variable_count;
