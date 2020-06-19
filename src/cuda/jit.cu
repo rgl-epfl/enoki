@@ -13,6 +13,7 @@
 
 #include <cuda.h>
 #include <vector>
+#include <string>
 #include <iostream>
 #include <iomanip>
 #include <array>
@@ -42,6 +43,8 @@
 /// Reserved registers for grid-stride loop indexing
 #define ENOKI_CUDA_REG_RESERVED 10
 
+#define ENOKI_DEFAULT_FUNCTION_NAME "enoki_@@@@@@@@"
+
 NAMESPACE_BEGIN(enoki)
 
 using TimePoint = std::chrono::time_point<std::chrono::high_resolution_clock>;
@@ -53,6 +56,25 @@ ENOKI_EXPORT void cuda_dec_ref_ext(uint32_t);
 ENOKI_EXPORT void cuda_dec_ref_int(uint32_t);
 ENOKI_EXPORT size_t cuda_register_size(EnokiType type);
 ENOKI_EXPORT uint32_t cuda_trace_append(EnokiType type, const char *cmd, uint32_t arg1);
+
+
+struct PtxModuleContext
+{
+    struct Detail;
+    Detail* d = nullptr;
+private:
+};
+
+struct PtxModuleContext::Detail
+{
+    bool recording = false;
+    const char* current_ptx_function_name;
+    std::set<uint32_t> already_declared_globals;
+    std::vector<std::string> ptxs;
+    /// Stores variables in order of apparition in the desiered function signature
+    std::vector<uint32_t> inputs;
+    std::vector<uint32_t> outputs;
+};
 
 // -----------------------------------------------------------------------
 //! @{ \name 'Variable' type that is used to record instruction traces
@@ -202,6 +224,9 @@ struct Context {
     /// Mutex protecting the malloc-related data structures
     std::recursive_mutex malloc_mutex;
 
+    // module context
+    PtxModuleContext ptx_ctx;
+
     ~Context() { clear(); }
 
     Variable &operator[](uint32_t i) {
@@ -316,11 +341,14 @@ ENOKI_EXPORT void cuda_init() {
         installed_shutdown_handler = true;
         atexit(cuda_shutdown);
     }
+
+    ctx.ptx_ctx.d = new PtxModuleContext::Detail();
 }
 
 ENOKI_EXPORT void cuda_shutdown() {
     if (__context) {
         __context->clear();
+        delete __context->ptx_ctx.d;
         delete __context;
         __context = nullptr;
     }
@@ -575,6 +603,24 @@ ENOKI_EXPORT const char *cuda_register_name(EnokiType type) {
     }
 }
 
+const char *cuda_register_optix_name(EnokiType type) {
+    switch (type) {
+        case EnokiType::UInt8:      return "E[8] = {117, 105, 110, 116, 56, 95, 116, 0}";
+        case EnokiType::Int8:       return "E[7] = {105, 110, 116, 56, 95, 116, 0}";
+        case EnokiType::UInt16:     return "E[9] = {117, 105, 110, 116, 49, 54, 95, 116, 0}";
+        case EnokiType::Int16:      return "E[8] = {105, 110, 116, 49, 54, 95, 116, 0}";
+        case EnokiType::UInt32:     return "E[9] = {117, 105, 110, 116, 51, 50, 95, 116, 0}";
+        case EnokiType::Int32:      return "E[8] = {105, 110, 116, 51, 50, 95, 116, 0}";
+        case EnokiType::Pointer:
+        case EnokiType::UInt64:     return "E[9] = {117, 105, 110, 116, 54, 52, 95, 116, 0}";
+        case EnokiType::Int64:      return "E[8] = {105, 110, 116, 54, 52, 95, 116, 0}";
+        case EnokiType::Float32:    return "E[6] = {102, 108, 111, 97, 116, 0}";
+        case EnokiType::Float64:    return "E[7] = {100, 111, 117, 98, 108, 101, 0}";
+        case EnokiType::Bool:       return "E[5] = {98, 111, 111, 108, 0}";
+        default: return nullptr;
+    }
+}
+
 //! @}
 // -----------------------------------------------------------------------
 
@@ -669,6 +715,12 @@ ENOKI_EXPORT void cuda_var_mark_side_effect(uint32_t index) {
 
     assert(index >= ENOKI_CUDA_REG_RESERVED);
     ctx[index].side_effect = true;
+}
+
+ENOKI_EXPORT bool cuda_var_is_dirty(uint32_t index) {
+    Context &ctx = context();
+    assert(index >= ENOKI_CUDA_REG_RESERVED);
+    return ctx[index].dirty;
 }
 
 ENOKI_EXPORT void cuda_var_mark_dirty(uint32_t index) {
@@ -981,17 +1033,21 @@ static void cuda_render_cmd(std::ostringstream &oss,
 }
 
 static std::pair<std::string, std::vector<void *>>
-cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_printf) {
+cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_printf, bool assemble_as_full_kernel = true) {
     Context &ctx = context();
+    PtxModuleContext &ptx_ctx = ctx.ptx_ctx;
+
     std::ostringstream oss;
     std::vector<void *> ptrs;
     size_t n_in = 0, n_out = 0, n_arith = 0,
            n_total = 0;
 
-    oss << ".version 6.3" << std::endl
-        << ".target sm_" << ENOKI_CUDA_COMPUTE_CAPABILITY << std::endl
-        << ".address_size 64" << std::endl
-        << std::endl;
+    if (assemble_as_full_kernel) {
+        oss << ".version 6.3" << std::endl
+            << ".target sm_" << ENOKI_CUDA_COMPUTE_CAPABILITY << std::endl
+            << ".address_size 64" << std::endl
+            << std::endl;
+    }
 
 #if !defined(NDEBUG)
     if (ctx.log_level >= 4)
@@ -1062,17 +1118,116 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             return "[%rd0 + " + std::to_string(idx * 8) + "]";
     };
 
-    if (parameter_direct) {
-        oss << ".visible .entry enoki_@@@@@@@@(.param .u32 size," << std::endl;
-        for (int i = 0; i < n_total; ++i) {
-            oss << "                               .param .u64 arg" << i
-                << ((i + 1 < n_total) ? "," : ") {") << std::endl;
+    std::vector<uint32_t> globals;
+    std::vector<std::string> global_params_labels;
+
+    std::string unused_variable_name = "__unused_";
+    size_t unused_variable_count = 0;
+
+    if (assemble_as_full_kernel) {
+        if (parameter_direct) {
+            oss << ".visible .entry " ENOKI_DEFAULT_FUNCTION_NAME "(.param .u32 size," << std::endl;
+            for (int i = 0; i < n_total; ++i) {
+                oss << "                               .param .u64 arg" << i
+                    << ((i + 1 < n_total) ? "," : ") {") << std::endl;
+            }
+        } else {
+            oss << ".visible .entry " ENOKI_DEFAULT_FUNCTION_NAME "(.param .u32 size," << std::endl
+                << "                               .param .u64 ptr) {" << std::endl;
         }
     } else {
-        oss << ".visible .entry enoki_@@@@@@@@(.param .u32 size," << std::endl
-            << "                               .param .u64 ptr) {" << std::endl;
-    }
+        for (uint32_t index: sweep) {
+            const Variable& var = ctx[index];
+            if (!var.data && !var.direct_pointer)
+                continue;
 
+            // if a variable has its data initialized, but is not
+            // spectified as an input, it is considered a global
+            auto is_an_input = std::find(ptx_ctx.d->inputs.begin(), ptx_ctx.d->inputs.end(), index) != ptx_ctx.d->inputs.end();
+            if (!is_an_input) {
+                globals.push_back(index);
+
+                // We use the variable label as it's name when it's a global
+                // to allow for easier PTX usage.
+                std::string label_cpy = var.label;
+                if (label_cpy.empty())
+                    label_cpy = "global_" + std::to_string(index);
+                else
+                    std::replace(label_cpy.begin(), label_cpy.end(), '.', '_');
+                global_params_labels.push_back(label_cpy);
+            }
+        }
+        if (!globals.empty()) {
+            oss << "// Declare global variables" << std::endl;
+
+            for (size_t i = 0; i < globals.size(); ++i) {
+                uint32_t index = globals[i];
+                auto global_already_declared = ptx_ctx.d->already_declared_globals.find(index) != ptx_ctx.d->already_declared_globals.end();
+                if (!global_already_declared) {
+                    ptx_ctx.d->already_declared_globals.insert(index);
+                    uint32_t index = globals[i];
+                    oss << ".visible .global .align " << cuda_register_size(ctx[index].type)
+                        << " ." << cuda_register_type(ctx[index].type) << " "
+                        << global_params_labels[i] << ";" << std::endl;
+
+                    std::string size_plus_name = std::to_string(global_params_labels[i].size()) + global_params_labels[i];
+
+                    // TODO: stop hardcoding this
+                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_typename" << size_plus_name
+                        << cuda_register_optix_name(ctx[index].type) << ";" << std::endl;
+                    oss << ".visible .global .align 4 .b8 _ZN21rti_internal_typeinfo" << size_plus_name
+                        << "E[8] = {82, 97, 121, 0, " << cuda_register_size(ctx[index].type) << ", 0, 0, 0};" << std::endl;
+                    oss << ".visible .global .align 4 .u32 _ZN21rti_internal_typeenum" << size_plus_name
+                        << "E = 4919;" << std::endl;
+                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_semantic" << size_plus_name
+                        << "E[1];" << std::endl;
+                    oss << ".visible .global .align 1 .b8 _ZN23rti_internal_annotation" << size_plus_name
+                        << "E[1];" << std::endl
+                        << std::endl;
+                }
+            }
+
+            oss << std::endl << std::endl;
+        }
+
+        oss << ".visible .func " ENOKI_DEFAULT_FUNCTION_NAME "(";
+        bool has_outputs = ptx_ctx.d->outputs.size() > 0;
+        for (size_t i = 0; i < ptx_ctx.d->inputs.size(); ++i) {
+            uint32_t index = ptx_ctx.d->inputs[i];
+            bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
+
+            // TODO: just a workaround, predicate type doesn't seem to be allowed in signature
+            auto var_type = ctx[index].type;
+            if (var_type == EnokiType::Bool)
+                var_type = EnokiType::Float32;
+
+            oss << std::endl << "    .param." << cuda_register_type(var_type) << " ";
+            if (unused) {
+                oss << unused_variable_name << unused_variable_count;
+                ++unused_variable_count;
+            } else {
+                oss << "in_" << reg_map[index];
+            }
+            if (has_outputs || i != ptx_ctx.d->inputs.size() - 1)
+                oss << ",";
+            if (!ctx[index].label.empty()) oss << "        // " << ctx[index].label;
+        }
+        for (size_t i = 0; i < ptx_ctx.d->outputs.size(); ++i) {
+            uint32_t index = ptx_ctx.d->outputs[i];
+            bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
+
+            oss << std::endl << "    .param.u64 ";
+            if (unused) {
+                oss << unused_variable_name << unused_variable_count;
+                ++unused_variable_count;
+            } else {
+                oss << "out_" << reg_map[index];
+            }
+            if (i != ptx_ctx.d->outputs.size()-1) oss << ",";
+            if (!ctx[index].label.empty()) oss << "\t\t// " << ctx[index].label;
+        }
+        oss << std::endl << ") {" << std::endl;
+    }
 
     oss << "    .reg.b8 %b<" << n_vars << ">;" << std::endl
         << "    .reg.b16 %w<" << n_vars << ">;" << std::endl
@@ -1081,25 +1236,27 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
         << "    .reg.f32 %f<" << n_vars << ">;" << std::endl
         << "    .reg.f64 %d<" << n_vars << ">;" << std::endl
         << "    .reg.pred %p<" << n_vars << ">;" << std::endl << std::endl
-        << std::endl
-        << "    // Grid-stride loop setup" << std::endl;
+        << std::endl;
 
-    if (!parameter_direct)
-        oss << "    ld.param.u64 %rd0, [ptr];" << std::endl;
+    if (assemble_as_full_kernel) {
+        oss << "    // Grid-stride loop setup" << std::endl;
+        if (!parameter_direct)
+            oss << "    ld.param.u64 %rd0, [ptr];" << std::endl;
 
-    oss << "    ld.param.u32 %r1, [size];" << std::endl
-        << "    mov.u32 %r4, %tid.x;" << std::endl
-        << "    mov.u32 %r5, %ctaid.x;" << std::endl
-        << "    mov.u32 %r6, %ntid.x;" << std::endl
-        << "    mad.lo.u32 %r2, %r5, %r6, %r4;" << std::endl
-        << "    setp.ge.u32 %p0, %r2, %r1;" << std::endl
-        << "    @%p0 bra L0;" << std::endl
-        << std::endl
-        << "    mov.u32 %r7, %nctaid.x;" << std::endl
-        << "    mul.lo.u32 %r3, %r6, %r7;" << std::endl
-        << std::endl
-        << "L1:" << std::endl
-        << "    // Loop body" << std::endl;
+        oss << "    ld.param.u32 %r1, [size];" << std::endl
+            << "    mov.u32 %r4, %tid.x;" << std::endl
+            << "    mov.u32 %r5, %ctaid.x;" << std::endl
+            << "    mov.u32 %r6, %ntid.x;" << std::endl
+            << "    mad.lo.u32 %r2, %r5, %r6, %r4;" << std::endl
+            << "    setp.ge.u32 %p0, %r2, %r1;" << std::endl
+            << "    @%p0 bra L0;" << std::endl
+            << std::endl
+            << "    mov.u32 %r7, %nctaid.x;" << std::endl
+            << "    mul.lo.u32 %r3, %r6, %r7;" << std::endl
+            << std::endl
+            << "L1:" << std::endl
+            << "    // Loop body" << std::endl;
+    }
 
     for (uint32_t index : sweep) {
         Variable &var = ctx[index];
@@ -1124,28 +1281,40 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                 oss << ": " << var.label;
             oss << std::endl;
 
-            if (!var.direct_pointer) {
-                oss << "    " << (parameter_direct ? "ld.param.u64 %rd8, " : "ld.global.u64 %rd8, ")
-                    << param_ref(idx) << ";" << std::endl;
+            if (assemble_as_full_kernel) {
+                if (!var.direct_pointer) {
+                    oss << "    " << (parameter_direct ? "ld.param.u64 %rd8, " : "ld.global.u64 %rd8, ")
+                        << param_ref(idx) << ";" << std::endl;
 
-                const char *load_instr = "ldu";
-                if (var.size != 1) {
-                    oss << "    mul.wide.u32 %rd9, %r2, " << cuda_register_size(var.type) << ";" << std::endl
-                        << "    add.u64 %rd8, %rd8, %rd9;" << std::endl;
-                    load_instr = "ld";
-                }
-                if (var.type != EnokiType::Bool) {
-                    oss << "    " << load_instr << ".global." << cuda_register_type(var.type) << " "
-                        << cuda_register_name(var.type) << reg_map[index] << ", [%rd8]"
-                        << ";" << std::endl;
+                    const char *load_instr = "ldu";
+                    if (var.size != 1) {
+                        oss << "    mul.wide.u32 %rd9, %r2, " << cuda_register_size(var.type) << ";" << std::endl
+                            << "    add.u64 %rd8, %rd8, %rd9;" << std::endl;
+                        load_instr = "ld";
+                    }
+                    if (var.type != EnokiType::Bool) {
+                        oss << "    " << load_instr << ".global." << cuda_register_type(var.type) << " "
+                            << cuda_register_name(var.type) << reg_map[index] << ", [%rd8]"
+                            << ";" << std::endl;
+                    } else {
+                        oss << "    " << load_instr << ".global.u8 %w1, [%rd8];" << std::endl
+                            << "    setp.ne.u16 " << cuda_register_name(var.type) << reg_map[index] << ", %w1, 0;";
+                    }
                 } else {
-                    oss << "    " << load_instr << ".global.u8 %w1, [%rd8];" << std::endl
-                        << "    setp.ne.u16 " << cuda_register_name(var.type) << reg_map[index] << ", %w1, 0;";
+                    oss << "    " << (parameter_direct ? "ld.param.u64 " : "ldu.global.u64 ")
+                        << cuda_register_name(var.type)
+                        << reg_map[index] << ", " << param_ref(idx) << ";";
                 }
             } else {
-                oss << "    " << (parameter_direct ? "ld.param.u64 " : "ldu.global.u64 ")
-                    << cuda_register_name(var.type)
-                    << reg_map[index] << ", " << param_ref(idx) << ";";
+                auto found_in_globals = std::find(globals.begin(), globals.end(), index);
+                if (found_in_globals != globals.end()) { // it's a global
+                    auto glob_index = (size_t)(found_in_globals - globals.begin());
+                    oss << "    ld.global." << cuda_register_type(var.type) << " " << cuda_register_name(var.type)
+                        << reg_map[index] << ", [" << global_params_labels[glob_index] << "];" << std::endl;
+                } else { // it's a function argument
+                    oss << "    ld.param." << cuda_register_type(var.type) << " "
+                        << cuda_register_name(var.type) << reg_map[index] << ", [in_" << reg_map[index] << "];" << std::endl;
+                }
             }
 
             n_in++;
@@ -1168,6 +1337,9 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             if (var.size != size)
                 continue;
 
+            if (!assemble_as_full_kernel && std::find(ptx_ctx.d->outputs.begin(), ptx_ctx.d->outputs.end(), index) == ptx_ctx.d->outputs.end())
+                continue;
+
             size_t size_in_bytes =
                 cuda_var_size(index) * cuda_register_size(var.type);
 
@@ -1187,29 +1359,43 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                 << "    // Store register " << cuda_register_name(var.type) << reg_map[index];
             if (!var.label.empty())
                 oss << ": " << var.label;
-            oss << std::endl
-                << "    " << (parameter_direct ? "ld.param.u64 %rd8, " : "ld.global.u64 %rd8, ")
-                << param_ref(idx) << ";" << std::endl;
-            if (var.size != 1) {
-                oss << "    mul.wide.u32 %rd9, %r2, " << cuda_register_size(var.type) << ";" << std::endl
-                    << "    add.u64 %rd8, %rd8, %rd9;" << std::endl;
-            }
-            if (var.type != EnokiType::Bool) {
-                oss << "    st.global." << cuda_register_type(var.type) << " [%rd8], "
-                    << cuda_register_name(var.type) << reg_map[index] << ";"
-                    << std::endl;
+            oss << std::endl;
+
+            if (assemble_as_full_kernel) {
+                oss << "    " << (parameter_direct ? "ld.param.u64 %rd8, " : "ld.global.u64 %rd8, ")
+                    << param_ref(idx) << ";" << std::endl;
+                if (var.size != 1) {
+                    oss << "    mul.wide.u32 %rd9, %r2, " << cuda_register_size(var.type) << ";" << std::endl
+                        << "    add.u64 %rd8, %rd8, %rd9;" << std::endl;
+                }
+                if (var.type != EnokiType::Bool) {
+                    oss << "    st.global." << cuda_register_type(var.type) << " [%rd8], "
+                        << cuda_register_name(var.type) << reg_map[index] << ";"
+                        << std::endl;
+                }
             } else {
-                oss << "    selp.u16 %w1, 1, 0, " << cuda_register_name(var.type)
-                    << reg_map[index] << ";" << std::endl;
-                oss << "    st.global.u8" << " [%rd8], %w1;" << std::endl;
+                if (var.type != EnokiType::Bool) {
+                    oss << "    ld.param.u64 %rd8, [out_" << reg_map[index] << "];" << std::endl;
+                    oss << "    st.global." << cuda_register_type(var.type) << " [%rd8], "
+                        << cuda_register_name(var.type) << reg_map[index] << ";"
+                        << std::endl;
+                }
+                // TODO: what should we do here?
+                // else {
+                //     oss << "    selp.u16 %w1, 1, 0, " << cuda_register_name(var.type)
+                //         << reg_map[index] << ";" << std::endl;
+                //     oss << "    st.global.u8" << " [%rd8], %w1;" << std::endl;
+                // }
             }
         }
     }
 
-    oss << std::endl
-        << "    add.u32     %r2, %r2, %r3;" << std::endl
-        << "    setp.ge.u32 %p0, %r2, %r1;" << std::endl
-        << "    @!%p0 bra L1;" << std::endl;
+    if (assemble_as_full_kernel) {
+        oss << std::endl
+            << "    add.u32     %r2, %r2, %r3;" << std::endl
+            << "    setp.ge.u32 %p0, %r2, %r1;" << std::endl
+            << "    @!%p0 bra L1;" << std::endl;
+    }
 
     oss << std::endl
         << "L0:" << std::endl
@@ -1295,6 +1481,7 @@ ENOKI_EXPORT void cuda_jit_run(Context &ctx,
         if (ctx.log_level >= 2) {
             char *ptax_details = strstr(info_log, "ptxas info");
             char *details = strstr(info_log, "\ninfo    : used");
+
             if (details) {
                 details += 16;
                 char *details_len = strstr(details, "registers,");
@@ -1418,6 +1605,9 @@ static void sweep_recursive(Context &ctx,
 ENOKI_EXPORT void cuda_eval(bool log_assembly) {
     Context &ctx = context();
 
+    if (ctx.ptx_ctx.d->recording)
+        throw std::runtime_error("cuda_eval(): cannot trigger cuda evaluation while recording ptx module!");
+
     for (auto callback: ctx.callbacks)
         callback.first(callback.second);
 
@@ -1461,6 +1651,7 @@ ENOKI_EXPORT void cuda_eval(bool log_assembly) {
         auto result = cuda_jit_assemble(size, schedule, ctx.include_printf);
         if (std::get<0>(result).empty())
             continue;
+
         TimePoint mid = std::chrono::high_resolution_clock::now();
 
         cuda_jit_run(ctx,
@@ -1505,6 +1696,127 @@ ENOKI_EXPORT void cuda_eval(bool log_assembly) {
                 cuda_dec_ref_ext(idx);
         }
     }
+}
+
+ENOKI_EXPORT char* cuda_get_ptx_module() {
+    PtxModuleContext &ptx_ctx = context().ptx_ctx;
+
+    std::ostringstream oss;
+    oss << ".version 6.3" << std::endl
+        << ".target sm_" << ENOKI_CUDA_COMPUTE_CAPABILITY << std::endl
+        << ".address_size 64" << std::endl
+        << std::endl;
+
+    std::string header = oss.str();
+
+    size_t total_module_length = header.size();
+    for (const auto& ptx_str: ptx_ctx.d->ptxs)
+        total_module_length += ptx_str.size();
+
+    char* module_str = (char*)malloc(total_module_length+1);
+    module_str[total_module_length] = '\0';
+
+    if (ENOKI_UNLIKELY(!module_str))
+        throw std::runtime_error("cuda_get_ptx_module(): unable to allocate enough memory for the ptx module!");
+
+    memcpy(module_str, header.c_str(), header.size());
+
+    size_t i = header.size();
+    for (const auto& ptx_str: ptx_ctx.d->ptxs) {
+        memcpy(module_str + i, ptx_str.c_str(), ptx_str.size());
+        i += ptx_str.size();
+    }
+
+    return module_str;
+}
+
+ENOKI_EXPORT void cuda_create_ptx_module_context() {
+    Context &ctx = context();
+
+    ctx.ptx_ctx.d->ptxs.clear();
+    ctx.ptx_ctx.d->already_declared_globals.clear();
+    context().ptx_ctx.d->current_ptx_function_name = nullptr;
+}
+
+ENOKI_EXPORT void cuda_destroy_ptx_module_context() {
+    // should not be necessary
+    context().ptx_ctx.d->recording = false;
+}
+
+ENOKI_EXPORT void cuda_start_recording_ptx_function(const char *function_name) {
+    cuda_eval();
+    context().ptx_ctx.d->recording = true;
+    context().ptx_ctx.d->current_ptx_function_name = function_name;
+}
+
+ENOKI_EXPORT void cuda_stop_recording_ptx_function() {
+    Context &ctx = context();
+    PtxModuleContext &ptx_ctx = ctx.ptx_ctx;
+
+    ptx_ctx.d->recording = false;
+
+    std::map<size_t, std::pair<std::unordered_set<uint32_t>,
+                               std::vector<uint32_t>>> sweeps;
+    for (uint32_t idx : ctx.live) {
+        auto &sweep = sweeps[ctx[idx].size];
+        sweep_recursive(ctx, std::get<0>(sweep), std::get<1>(sweep), idx);
+    }
+    for (uint32_t idx : ctx.dirty)
+        ctx[idx].dirty = false;
+
+    ctx.live.clear();
+    ctx.dirty.clear();
+
+    if (sweeps.empty()) {
+        ptx_ctx.d->inputs.clear();
+        ptx_ctx.d->outputs.clear();
+        context().ptx_ctx.d->current_ptx_function_name = nullptr;
+        return;
+    }
+
+    if(ENOKI_UNLIKELY(sweeps.size() > 1))
+        throw std::runtime_error("cuda_get_ptx(): cannot extract multiple functions at once!");
+
+    size_t size = std::get<0>(*sweeps.begin());
+    const std::vector<uint32_t> &schedule = std::get<1>(std::get<1>(*sweeps.begin()));
+    auto result = cuda_jit_assemble(size, schedule, ctx.include_printf, false);
+
+    // Clear ptx-extraction related context
+    ptx_ctx.d->inputs.clear();
+    ptx_ctx.d->outputs.clear();
+
+    if (std::get<0>(result).empty()) {
+        context().ptx_ctx.d->current_ptx_function_name = nullptr;
+        return;
+    }
+
+    // Replace enoki's default function name
+    auto& ptx_str = std::get<0>(result);
+    auto f_name = ptx_str.find(ENOKI_DEFAULT_FUNCTION_NAME);
+
+    // This should NEVER happend
+    if (ENOKI_UNLIKELY(f_name == std::string::npos))
+        throw std::runtime_error("cuda_record_ptx(): could not find default function name in extracted ptx!");
+
+    ptx_str.replace(f_name, strlen(ENOKI_DEFAULT_FUNCTION_NAME), ptx_ctx.d->current_ptx_function_name);
+    context().ptx_ctx.d->current_ptx_function_name = nullptr;
+
+    ptx_ctx.d->ptxs.push_back(ptx_str);
+}
+
+ENOKI_EXPORT void cuda_var_mark_output(uint32_t index) {
+    Context &ctx = context();
+    if (ENOKI_UNLIKELY(ctx[index].data || ctx[index].direct_pointer))
+        throw std::runtime_error("cuda_var_mark_output(): variable cannot be set "
+                                 "as output with an initial value!");
+    ctx.ptx_ctx.d->outputs.push_back(index);
+}
+ENOKI_EXPORT void cuda_var_mark_input(uint32_t index) {
+    Context &ctx = context();
+    if (ENOKI_UNLIKELY(!ctx[index].data && !ctx[index].direct_pointer))
+        throw std::runtime_error("cuda_var_mark_input(): variable cannot be set "
+                                 "as input without being previously initialized!");
+    ctx.ptx_ctx.d->inputs.push_back(index);
 }
 
 ENOKI_EXPORT void cuda_eval_var(uint32_t index, bool log_assembly) {
