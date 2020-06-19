@@ -1135,6 +1135,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             oss << ".visible .entry " ENOKI_DEFAULT_FUNCTION_NAME "(.param .u32 size," << std::endl
                 << "                               .param .u64 ptr) {" << std::endl;
         }
+
     } else {
         for (uint32_t index: sweep) {
             const Variable& var = ctx[index];
@@ -1240,6 +1241,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
 
     if (assemble_as_full_kernel) {
         oss << "    // Grid-stride loop setup" << std::endl;
+
         if (!parameter_direct)
             oss << "    ld.param.u64 %rd0, [ptr];" << std::endl;
 
@@ -1372,6 +1374,10 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                     oss << "    st.global." << cuda_register_type(var.type) << " [%rd8], "
                         << cuda_register_name(var.type) << reg_map[index] << ";"
                         << std::endl;
+                } else {
+                    oss << "    selp.u16 %w1, 1, 0, " << cuda_register_name(var.type)
+                        << reg_map[index] << ";" << std::endl;
+                    oss << "    st.global.u8" << " [%rd8], %w1;" << std::endl;
                 }
             } else {
                 if (var.type != EnokiType::Bool) {
@@ -1380,12 +1386,12 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                         << cuda_register_name(var.type) << reg_map[index] << ";"
                         << std::endl;
                 }
-                // TODO: what should we do here?
-                // else {
-                //     oss << "    selp.u16 %w1, 1, 0, " << cuda_register_name(var.type)
-                //         << reg_map[index] << ";" << std::endl;
-                //     oss << "    st.global.u8" << " [%rd8], %w1;" << std::endl;
-                // }
+                // TODO: is this not working? (was commented out before)
+                else {
+                    oss << "    selp.u16 %w1, 1, 0, " << cuda_register_name(var.type)
+                        << reg_map[index] << ";" << std::endl;
+                    oss << "    st.global.u8" << " [%rd8], %w1;" << std::endl;
+                }
             }
         }
     }
