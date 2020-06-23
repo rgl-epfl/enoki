@@ -104,3 +104,36 @@ ENOKI_TEST(test01_extract_autodiffed_function) {
     for (const auto &e : expected_parts)
         assert(ptx.find(e) != std::string::npos);
 }
+
+
+ENOKI_TEST(test02_extract_forward_function_with_globals) {
+    FloatC a = 1.f, b = 2.f, g = 3.f;
+    set_label(a, "a");
+    set_label(b, "b");
+    set_label(g, "g");
+
+    cuda_start_recording_ptx_function("__direct_callable__callable");
+    FloatC c = sqrt(sqr(a) + sqr(b)) - g;
+    set_label(c, "c");
+
+    // cuda_set_inputs(a, b);
+    cuda_set_outputs(c);
+    cuda_stop_recording_ptx_function();
+
+    const char *ptx_c = cuda_get_ptx_module();
+    assert(ptx_c != nullptr);
+
+    std::string ptx(ptx_c);
+    std::string expected_start = ".version ";
+    std::vector<std::string> expected_parts = {
+        ".target sm_",
+        ".func my_function",
+        "__globals_buf",
+        "  ld.global.f32",
+        "  mul.rn.ftz.f32"
+    };
+
+    assert(ptx.rfind(expected_start, 0) == 0);
+    for (const auto &e : expected_parts)
+        assert(ptx.find(e) != std::string::npos);
+}

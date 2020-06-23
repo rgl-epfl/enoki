@@ -44,6 +44,8 @@
 #define ENOKI_CUDA_REG_RESERVED 10
 
 #define ENOKI_DEFAULT_FUNCTION_NAME "enoki_@@@@@@@@"
+#define ENOKI_GLOBAL_BUFFER_PARAM_NAME "__globals_buf"
+#define ENOKI_GLOBAL_BUFFER_REG "%rd0"
 
 NAMESPACE_BEGIN(enoki)
 
@@ -70,6 +72,11 @@ struct PtxModuleContext::Detail
     bool recording = false;
     const char* current_ptx_function_name;
     std::set<uint32_t> already_declared_globals;
+
+    /// Map from a global's name to an offset in a buffer containing all globals
+    std::unordered_map<std::string, size_t, StringHasher> globals_offsets;
+    size_t globals_size;
+
     std::vector<std::string> ptxs;
     /// Stores variables in order of apparition in the desiered function signature
     std::vector<uint32_t> inputs;
@@ -1142,13 +1149,13 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             if (!var.data && !var.direct_pointer)
                 continue;
 
-            // if a variable has its data initialized, but is not
+            // If a variable has its data initialized, but is not
             // spectified as an input, it is considered a global
             auto is_an_input = std::find(ptx_ctx.d->inputs.begin(), ptx_ctx.d->inputs.end(), index) != ptx_ctx.d->inputs.end();
             if (!is_an_input) {
                 globals.push_back(index);
 
-                // We use the variable label as it's name when it's a global
+                // We use the variable label as its name when it's a global
                 // to allow for easier PTX usage.
                 std::string label_cpy = var.label;
                 if (label_cpy.empty())
@@ -1158,41 +1165,33 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                 global_params_labels.push_back(label_cpy);
             }
         }
-        if (!globals.empty()) {
-            oss << "// Declare global variables" << std::endl;
 
-            for (size_t i = 0; i < globals.size(); ++i) {
-                uint32_t index = globals[i];
-                auto global_already_declared = ptx_ctx.d->already_declared_globals.find(index) != ptx_ctx.d->already_declared_globals.end();
-                if (!global_already_declared) {
-                    ptx_ctx.d->already_declared_globals.insert(index);
-                    uint32_t index = globals[i];
-                    oss << ".visible .global .align " << cuda_register_size(ctx[index].type)
-                        << " ." << cuda_register_type(ctx[index].type) << " "
-                        << global_params_labels[i] << ";" << std::endl;
-
-                    std::string size_plus_name = std::to_string(global_params_labels[i].size()) + global_params_labels[i];
-
-                    // TODO: stop hardcoding this
-                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_typename" << size_plus_name
-                        << cuda_register_optix_name(ctx[index].type) << ";" << std::endl;
-                    oss << ".visible .global .align 4 .b8 _ZN21rti_internal_typeinfo" << size_plus_name
-                        << "E[8] = {82, 97, 121, 0, " << cuda_register_size(ctx[index].type) << ", 0, 0, 0};" << std::endl;
-                    oss << ".visible .global .align 4 .u32 _ZN21rti_internal_typeenum" << size_plus_name
-                        << "E = 4919;" << std::endl;
-                    oss << ".visible .global .align 1 .b8 _ZN21rti_internal_semantic" << size_plus_name
-                        << "E[1];" << std::endl;
-                    oss << ".visible .global .align 1 .b8 _ZN23rti_internal_annotation" << size_plus_name
-                        << "E[1];" << std::endl
-                        << std::endl;
-                }
+        // Prepare layout of globals buffer
+        for (size_t i = 0; i < globals.size(); ++i) {
+            uint32_t var_index = globals[i];
+            auto already_declared = ptx_ctx.d->already_declared_globals.find(var_index) != ptx_ctx.d->already_declared_globals.end();
+            if (!already_declared) {
+                size_t sz = cuda_register_size(ctx[var_index].type);
+                ptx_ctx.d->already_declared_globals.insert(var_index);
+                // oss << ".visible .global .align " << sz
+                //     << " ." << cuda_register_type(ctx[var_index].type) << " "
+                //     << global_params_labels[i] << ";" << std::endl;
+                ptx_ctx.d->globals_offsets[global_params_labels[i]] = ptx_ctx.d->globals_size;
+                ptx_ctx.d->globals_size += sz;
             }
-
-            oss << std::endl << std::endl;
         }
 
         oss << ".visible .func " ENOKI_DEFAULT_FUNCTION_NAME "(";
+
+        // First parameter is a pointer to the buffer containing all globals
+        oss << std::endl << "    .param." << cuda_register_type(EnokiType::Pointer)
+            << " " ENOKI_GLOBAL_BUFFER_PARAM_NAME;
+
         bool has_outputs = ptx_ctx.d->outputs.size() > 0;
+        if (!ptx_ctx.d->inputs.size() > 0 || has_outputs)
+            oss << ",";
+
+        // Input parameters
         for (size_t i = 0; i < ptx_ctx.d->inputs.size(); ++i) {
             uint32_t index = ptx_ctx.d->inputs[i];
             bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
@@ -1213,6 +1212,8 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                 oss << ",";
             if (!ctx[index].label.empty()) oss << "        // " << ctx[index].label;
         }
+
+        // Output parameters (pointers)
         for (size_t i = 0; i < ptx_ctx.d->outputs.size(); ++i) {
             uint32_t index = ptx_ctx.d->outputs[i];
             bool unused = std::find(sweep.begin(), sweep.end(), index) == sweep.end();
@@ -1258,6 +1259,11 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             << std::endl
             << "L1:" << std::endl
             << "    // Loop body" << std::endl;
+    } else {
+        // Load address of globals' buffer into a register
+        oss << "    ld.param." << cuda_register_type(EnokiType::Pointer)
+            << " " ENOKI_GLOBAL_BUFFER_REG ", [" ENOKI_GLOBAL_BUFFER_PARAM_NAME "];"
+            << std::endl;
     }
 
     for (uint32_t index : sweep) {
@@ -1309,10 +1315,21 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                 }
             } else {
                 auto found_in_globals = std::find(globals.begin(), globals.end(), index);
-                if (found_in_globals != globals.end()) { // it's a global
+                if (found_in_globals != globals.end()) {
+                    // Load from the globals buffer + the pre-computed offset
+                    // TODO: avoid doing several searches (name, index, offset)
                     auto glob_index = (size_t)(found_in_globals - globals.begin());
-                    oss << "    ld.global." << cuda_register_type(var.type) << " " << cuda_register_name(var.type)
-                        << reg_map[index] << ", [" << global_params_labels[glob_index] << "];" << std::endl;
+                    // oss << "    ld.global." << cuda_register_type(var.type) << " " << cuda_register_name(var.type)
+                    //     << reg_map[index] << ", [" << global_params_labels[glob_index] << "];" << std::endl;
+                    size_t g_offset = ptx_ctx.d->globals_offsets[global_params_labels[glob_index]];
+
+                    oss << "    ld.global." << cuda_register_type(var.type)
+                        << " " << cuda_register_name(var.type)
+                        << reg_map[index] << ", [" ENOKI_GLOBAL_BUFFER_REG "+"
+                        << g_offset << "];" << std::endl;
+                    // oss << "    ld.global." << cuda_register_type(var.type) << " " << cuda_register_name(var.type)
+                    // << reg_map[index] << ", [" ENOKI_GLOBAL_BUFFER_PARAM_NAME "+" << g_offset << "];" << std::endl;
+
                 } else { // it's a function argument
                     oss << "    ld.param." << cuda_register_type(var.type) << " "
                         << cuda_register_name(var.type) << reg_map[index] << ", [in_" << reg_map[index] << "];" << std::endl;
@@ -1741,6 +1758,8 @@ ENOKI_EXPORT void cuda_create_ptx_module_context() {
 
     ctx.ptx_ctx.d->ptxs.clear();
     ctx.ptx_ctx.d->already_declared_globals.clear();
+    ctx.ptx_ctx.d->globals_offsets.clear();
+    ctx.ptx_ctx.d->globals_size = 0;
     context().ptx_ctx.d->current_ptx_function_name = nullptr;
 }
 
