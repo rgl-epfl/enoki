@@ -1399,7 +1399,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             } else {
                 if (var.type != EnokiType::Bool) {
                     oss << "    ld.param.u64 %rd8, [out_" << reg_map[index] << "];" << std::endl;
-                    oss << "    st.global." << cuda_register_type(var.type) << " [%rd8], "
+                    oss << "    st." << cuda_register_type(var.type) << " [%rd8], "
                         << cuda_register_name(var.type) << reg_map[index] << ";"
                         << std::endl;
                 }
