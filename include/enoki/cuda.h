@@ -49,6 +49,15 @@ extern ENOKI_IMPORT void cuda_stop_recording_ptx_function();
 
 /// Generate PTX code for the trace up to the current instruction
 extern ENOKI_IMPORT char* cuda_get_ptx_module();
+/**
+ * Outputs a list of globals names,
+ *         a list with the size of each name,
+ *         and a list of each global's offsets, as used in the PTX programs.
+ * The caller takes ownership of the lists.
+ * Returns the number of globals (list element count).
+ */
+extern ENOKI_IMPORT size_t cuda_get_ptx_globals(
+    char **names, size_t **name_sizes, size_t **offsets);
 
 template<typename Arg>
 ENOKI_INLINE void cuda_set_inputs(const Arg& a) { mark_input(a); }

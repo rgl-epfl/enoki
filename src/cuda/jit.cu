@@ -1753,6 +1753,49 @@ ENOKI_EXPORT char* cuda_get_ptx_module() {
     return module_str;
 }
 
+
+ENOKI_EXPORT size_t cuda_get_ptx_globals(
+    char **out_names, size_t **out_name_sizes, size_t **out_offsets) {
+    Context &ctx = context();
+    const auto &offsets = ctx.ptx_ctx.d->globals_offsets;
+    if (offsets.size() == 0) {
+        *out_names = nullptr;
+        *out_name_sizes = nullptr;
+        *out_offsets = nullptr;
+        return 0;
+    }
+
+    size_t count = offsets.size();
+    size_t total_names_size = 0;
+    size_t *name_sizes = (size_t *) malloc(count * sizeof(size_t));
+    size_t *the_offsets = (size_t *) malloc(count * sizeof(size_t));
+
+    std::vector<std::string> keys;
+    size_t i = 0;
+    for (const auto &kv: offsets) {
+        keys.push_back(kv.first);
+
+        name_sizes[i] = kv.first.size() + 1;  // With null terminator
+        total_names_size += name_sizes[i];
+        the_offsets[i] = kv.second;
+        ++i;
+    }
+
+    char *names = (char *) malloc(total_names_size * sizeof(char));
+    size_t o = 0;
+    i = 0;
+    for (const auto &k : keys) {
+        strcpy(names + o, k.c_str());
+        o += name_sizes[i];
+        ++i;
+    }
+
+    *out_names = names;
+    *out_name_sizes = name_sizes;
+    *out_offsets = the_offsets;
+    return count;
+}
+
 ENOKI_EXPORT void cuda_create_ptx_module_context() {
     Context &ctx = context();
 
