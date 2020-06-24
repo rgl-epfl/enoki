@@ -57,7 +57,7 @@ extern ENOKI_IMPORT char* cuda_get_ptx_module();
  * Returns the number of globals (list element count).
  */
 extern ENOKI_IMPORT size_t cuda_get_ptx_globals(
-    char **names, size_t **name_sizes, size_t **offsets);
+    char **names, size_t **name_sizes, size_t **offsets, size_t *globals_size);
 
 template<typename Arg>
 ENOKI_INLINE void cuda_set_inputs(const Arg& a) { mark_input(a); }

@@ -1755,7 +1755,8 @@ ENOKI_EXPORT char* cuda_get_ptx_module() {
 
 
 ENOKI_EXPORT size_t cuda_get_ptx_globals(
-    char **out_names, size_t **out_name_sizes, size_t **out_offsets) {
+    char **out_names, size_t **out_name_sizes, size_t **out_offsets,
+    size_t *out_globals_size) {
     Context &ctx = context();
     const auto &offsets = ctx.ptx_ctx.d->globals_offsets;
     if (offsets.size() == 0) {
@@ -1793,6 +1794,7 @@ ENOKI_EXPORT size_t cuda_get_ptx_globals(
     *out_names = names;
     *out_name_sizes = name_sizes;
     *out_offsets = the_offsets;
+    *out_globals_size = ctx.ptx_ctx.d->globals_size;
     return count;
 }
 
