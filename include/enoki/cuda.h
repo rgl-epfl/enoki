@@ -220,6 +220,9 @@ extern ENOKI_IMPORT void cuda_reverse(uint16_t *out, const uint16_t *in, size_t 
 extern ENOKI_IMPORT void cuda_reverse(uint32_t *out, const uint32_t *in, size_t size);
 extern ENOKI_IMPORT void cuda_reverse(uint64_t *out, const uint64_t *in, size_t size);
 
+/// Calls cudaStreamCreate with the given output argument
+extern ENOKI_IMPORT void cuda_stream_create(void *stream);
+
 /// Release device-local or unified memory
 extern ENOKI_IMPORT void cuda_free(void *);
 
