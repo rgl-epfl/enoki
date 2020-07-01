@@ -1762,6 +1762,7 @@ ENOKI_EXPORT size_t cuda_get_ptx_globals(
         *out_names = nullptr;
         *out_name_sizes = nullptr;
         *out_offsets = nullptr;
+        *out_globals_size = 0;
         return 0;
     }
 
