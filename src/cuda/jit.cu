@@ -1188,7 +1188,7 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             << " " ENOKI_GLOBAL_BUFFER_PARAM_NAME;
 
         bool has_outputs = ptx_ctx.d->outputs.size() > 0;
-        if (!ptx_ctx.d->inputs.size() > 0 || has_outputs)
+        if (!ptx_ctx.d->inputs.empty() || has_outputs)
             oss << ",";
 
         // Input parameters
