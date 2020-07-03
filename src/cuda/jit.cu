@@ -1087,10 +1087,8 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
         if (v.data || v.direct_pointer) {
             n_total++;
         } else {
-            if (!v.side_effect &&
-                 v.ref_count_ext > 0 &&
-                 v.size == size)
-            n_total++;
+            if (!v.side_effect && v.ref_count_ext > 0 && v.size == size)
+                n_total++;
         }
     }
     reg_map[2] = 2;
@@ -1172,12 +1170,13 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
             auto already_declared = ptx_ctx.d->already_declared_globals.find(var_index) != ptx_ctx.d->already_declared_globals.end();
             if (!already_declared) {
                 size_t sz = cuda_register_size(ctx[var_index].type);
+                // Ensure alignment, based on this variables type
+                size_t padding = ptx_ctx.d->globals_size % sz;
+
                 ptx_ctx.d->already_declared_globals.insert(var_index);
-                // oss << ".visible .global .align " << sz
-                //     << " ." << cuda_register_type(ctx[var_index].type) << " "
-                //     << global_params_labels[i] << ";" << std::endl;
-                ptx_ctx.d->globals_offsets[global_params_labels[i]] = ptx_ctx.d->globals_size;
-                ptx_ctx.d->globals_size += sz;
+                ptx_ctx.d->globals_offsets[global_params_labels[i]]
+                    = padding + ptx_ctx.d->globals_size;
+                ptx_ctx.d->globals_size += sz + padding;
             }
         }
 
@@ -1429,7 +1428,9 @@ cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_
                   << n_in << ", out=" << n_out << ", ops=" << n_arith
                   << ")" << std::endl;
 
-    assert(ptrs.size() == n_total);
+    // TODO: is this assert also meaningful for JIT extraction?
+    if (assemble_as_full_kernel)
+        assert(ptrs.size() == n_total);
 
     return { oss.str(), ptrs };
 }
