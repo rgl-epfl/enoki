@@ -121,6 +121,10 @@ ENOKI_EXPORT void cuda_stream_create(void *stream) {
     cuda_check(cudaStreamCreate((cudaStream_t *) stream));
 }
 
+ENOKI_EXPORT void cuda_stream_synchronize(void *stream) {
+    cuda_check(cudaStreamSynchronize(*(cudaStream_t *) stream));
+}
+
 ENOKI_EXPORT void cuda_mem_get_info(size_t *free, size_t *total) {
     cuda_check(cudaMemGetInfo(free, total));
 }
