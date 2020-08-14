@@ -196,6 +196,10 @@ extern ENOKI_IMPORT void cuda_memcpy_to_device_async(void *dst, const void *src,
 extern ENOKI_IMPORT void cuda_memcpy_from_device(void *dst, const void *src, size_t size);
 extern ENOKI_IMPORT void cuda_memcpy_from_device_async(void *dst, const void *src, size_t size);
 
+/// Copy a memory region from the device to the device
+extern ENOKI_IMPORT void cuda_memcpy_device_to_device(void *dst, const void *src, size_t size);
+extern ENOKI_IMPORT void cuda_memcpy_device_to_device_async(void *dst, const void *src, size_t size);
+
 /// Return the free and total amount of memory (Wrapper around cudaMemGetInfo)
 extern ENOKI_IMPORT void cuda_mem_get_info(size_t *free, size_t *total);
 

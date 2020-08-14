@@ -113,8 +113,12 @@ ENOKI_EXPORT void cuda_memcpy_to_device_async(void *dst, const void *src, size_t
     cuda_check(cudaMemcpyAsync(dst, src, size, cudaMemcpyHostToDevice));
 }
 
-ENOKI_EXPORT void cuda_memcpy_from_device_async(void *dst, const void *src, size_t size) {
-    cuda_check(cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToHost));
+ENOKI_EXPORT void cuda_memcpy_device_to_device(void *dst, const void *src, size_t size) {
+    cuda_check(cudaMemcpy(dst, src, size, cudaMemcpyDeviceToDevice));
+}
+
+ENOKI_EXPORT void cuda_memcpy_device_to_device_async(void *dst, const void *src, size_t size) {
+    cuda_check(cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToDevice));
 }
 
 ENOKI_EXPORT void cuda_stream_create(void *stream) {
