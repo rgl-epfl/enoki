@@ -49,6 +49,10 @@ if (MSVC)
   endif()
 else()
   set(ENOKI_ARCHFLAGS_FILE archflags_unix.cpp)
+
+  # Seems to be causing some issues on some machines,
+  # comment this out if build is failing with errors such as:
+  #     error: identifier "__builtin_ia32_sqrtsd_round" is undefined
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
 endif()
 
