@@ -35,6 +35,13 @@ PYBIND11_MODULE(cuda, s) {
     m.def("cuda_sync", &cuda_sync,
           py::call_guard<py::gil_scoped_release>());
 
+    m.def("cuda_stream_create", []() {
+        void *stream;
+        cuda_stream_create(&stream);
+        return stream;
+    });
+    m.def("cuda_stream_synchronize", &cuda_stream_synchronize);
+
     m.def("cuda_malloc_trim", &cuda_malloc_trim);
 
     m.def("cuda_whos", []() { char *w = cuda_whos(); py::print(w); free(w); });

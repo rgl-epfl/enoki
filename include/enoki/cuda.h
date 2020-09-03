@@ -224,8 +224,13 @@ extern ENOKI_IMPORT void cuda_reverse(uint16_t *out, const uint16_t *in, size_t 
 extern ENOKI_IMPORT void cuda_reverse(uint32_t *out, const uint32_t *in, size_t size);
 extern ENOKI_IMPORT void cuda_reverse(uint64_t *out, const uint64_t *in, size_t size);
 
-/// Calls cudaStreamCreate with the given output argument
-extern ENOKI_IMPORT void cuda_stream_create(void *stream);
+/**
+ * Calls cudaStreamCreate with the given argument (output).
+ * Type is (void *)*, where (void *) stands for `cudaStream_t` (without
+ * having to declare it), and the last pointer is to make it
+ * an output argument.
+ */
+extern ENOKI_IMPORT void cuda_stream_create(void **stream);
 
 /// Calls cudaStreamSynchronize with the given output argument
 extern ENOKI_IMPORT void cuda_stream_synchronize(void *stream);

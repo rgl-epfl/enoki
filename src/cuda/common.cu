@@ -121,12 +121,12 @@ ENOKI_EXPORT void cuda_memcpy_device_to_device_async(void *dst, const void *src,
     cuda_check(cudaMemcpyAsync(dst, src, size, cudaMemcpyDeviceToDevice));
 }
 
-ENOKI_EXPORT void cuda_stream_create(void *stream) {
+ENOKI_EXPORT void cuda_stream_create(void **stream) {
     cuda_check(cudaStreamCreate((cudaStream_t *) stream));
 }
 
 ENOKI_EXPORT void cuda_stream_synchronize(void *stream) {
-    cuda_check(cudaStreamSynchronize(*(cudaStream_t *) stream));
+    cuda_check(cudaStreamSynchronize((cudaStream_t) stream));
 }
 
 ENOKI_EXPORT void cuda_mem_get_info(size_t *free, size_t *total) {

@@ -1040,7 +1040,8 @@ static void cuda_render_cmd(std::ostringstream &oss,
 }
 
 static std::pair<std::string, std::vector<void *>>
-cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep, bool include_printf, bool assemble_as_full_kernel = true) {
+cuda_jit_assemble(size_t size, const std::vector<uint32_t> &sweep,
+                  bool include_printf, bool assemble_as_full_kernel = true) {
     Context &ctx = context();
     PtxModuleContext &ptx_ctx = ctx.ptx_ctx;
 
