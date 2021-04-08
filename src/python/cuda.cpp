@@ -11,6 +11,10 @@ extern void bind_cuda_pcg32(py::module&, py::module&);
 
 bool *implicit_conversion = nullptr;
 
+typedef struct CUstream_st *cudaStream_t;
+struct CUstream_st {};
+
+
 PYBIND11_MODULE(cuda, s) {
     py::module m = py::module::import("enoki");
     py::module::import("enoki.scalar");
@@ -35,12 +39,17 @@ PYBIND11_MODULE(cuda, s) {
     m.def("cuda_sync", &cuda_sync,
           py::call_guard<py::gil_scoped_release>());
 
+
+    // This is so that cudaStream_t arguments can be used without explicit conversion
+    py::class_<CUstream_st>(m, "CUstream_st", py::module_local());
     m.def("cuda_stream_create", []() {
         void *stream;
         cuda_stream_create(&stream);
-        return stream;
+        return (cudaStream_t) stream;
+    }, py::return_value_policy::reference);
+    m.def("cuda_stream_synchronize", [](cudaStream_t stream) {
+        cuda_stream_synchronize((void *) stream);
     });
-    m.def("cuda_stream_synchronize", &cuda_stream_synchronize);
 
     m.def("cuda_malloc_trim", &cuda_malloc_trim);
 
